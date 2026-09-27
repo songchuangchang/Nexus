@@ -13,6 +13,7 @@ library web_search_config;
 
 import 'package:flutter/foundation.dart';
 
+import '../services/repo_endpoints.dart';
 import '../services/secret_store.dart';
 
 enum WebSearchProvider {
@@ -48,8 +49,11 @@ extension WebSearchProviderInfo on WebSearchProvider {
 }
 
 /// 远程规则源默认 URL（用户 GitHub 仓库，自动同步）
-const String _defaultRulesUrl =
-    'https://fastly.jsdelivr.net/gh/songchuangchang/a11@main/rules.json';
+///
+/// build171：地址不再在这里写字面量——它和
+/// `screens/security_scan_settings_screen.dart` 里"恢复默认"按钮填的是**同一条**，
+/// 以前两处各有一份，改一处就会静默分叉（现在两份都指 [kRepoRulesUrlDefault]）。
+const String _defaultRulesUrl = kRepoRulesUrlDefault;
 
 /// build145（循环审查第 7 轮 P0-2）：`fromMap` 的宽松取串。
 /// 列里躺着非字符串（版本错配 / 手工改库）时**不抛**，退回 [fallback]；

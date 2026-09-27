@@ -1,11 +1,13 @@
 /// APP 更新检查服务（v1.7.12）
 ///
 /// 从 GitHub Releases 查询最新版本，支持手动 + 启动自动检查。
-/// 查询接口：https://api.github.com/repos/songchuangchang/a11/releases/latest
+/// 查询接口由 [kRepoReleaseApiLatest] 给（仓库地址只住 `repo_endpoints.dart` 一处）。
 library app_update_service;
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
+import 'repo_endpoints.dart';
 import '../constants.dart' show kAppVersionConst;
 import 'biometric_service.dart';
 import 'file_open_service.dart';
@@ -39,8 +41,7 @@ class AppUpdateInfo {
 /// APP 更新检查服务
 class AppUpdateService {
   static final LoggerService _logger = LoggerService.instance;
-  static const _repoApiLatest =
-      'https://api.github.com/repos/songchuangchang/a11/releases/latest';
+  static const _repoApiLatest = kRepoReleaseApiLatest;
 
   /// v1.7.13：启动静默检查 one-shot 守卫
   ///

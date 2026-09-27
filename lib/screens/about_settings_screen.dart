@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+
+import '../services/repo_endpoints.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 
@@ -122,11 +124,10 @@ class AboutSettingsScreen extends StatelessWidget {
                   dense: true,
                   leading: const Icon(Icons.hub_outlined),
                   title: Text(zh ? 'GitHub 仓库' : 'GitHub Repository'),
-                  subtitle: const Text('github.com/songchuangchang/a11',
+                  subtitle: const Text(kRepoDisplayUrl,
                       style: TextStyle(fontSize: 12)),
                   onTap: () async {
-                    final uri =
-                        Uri.parse('https://github.com/songchuangchang/a11');
+                    final uri = Uri.parse(kRepoHtmlUrl);
                     if (await canLaunchUrl(uri)) {
                       await BiometricService.guardActivityTransition(
                         () => launchUrl(uri,

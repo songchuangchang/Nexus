@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'live_task_center.dart';
 import 'live_task_wiring.dart';
+import 'repo_endpoints.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -558,13 +559,14 @@ class DataPackService extends ChangeNotifier {
   // ==================================================================
 
   static List<DataPackSpec> _allSpecs({required String appVersion}) {
-    const rawBase = 'https://raw.githubusercontent.com/songchuangchang/a11/main/';
-    const jsdBase = 'https://fastly.jsdelivr.net/gh/songchuangchang/a11@main/';
+    // build171：两个源前缀与"镜像优先、raw 兜底"的顺序都住在 `repo_endpoints.dart`。
+    // 以前这两行是写死的**私有仓库**地址 ⇒ 对所有人永远 404/403（G54–G56 的立项事实），
+    // 这个服务从上线起就没真取到过远端数据包；迁到公开的 Nexus 之后才第一次取得到。
     // 内置数据随 App 一起发布 ⇒ 内置版本就是 App 版本（注入的 appVersion
     // 只影响闸门基准，测试里可造低/高版本场景）。
     final builtinVersion = appVersion;
 
-    List<String> sourcesOf(String file) => ['$jsdBase$file', '$rawBase$file'];
+    List<String> sourcesOf(String file) => repoFileSources(file);
 
     return [
       DataPackSpec(

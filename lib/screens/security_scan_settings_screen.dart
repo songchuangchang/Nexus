@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/web_search_config.dart';
+import '../services/repo_endpoints.dart';
 import '../services/custom_scan_rules.dart';
 import '../services/local_scan_service.dart';
 import '../services/security_scan_service.dart';
@@ -267,8 +268,9 @@ class _SecurityScanSettingsScreenState
               const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () {
-                  const defaultUrl =
-                      'https://fastly.jsdelivr.net/gh/songchuangchang/a11@main/rules.json';
+                  // build171：与 `models/web_search_config.dart` 里那个默认值是**同一条**
+                  // 地址，以前两个文件各写了一份字面量。
+                  const defaultUrl = kRepoRulesUrlDefault;
                   _localScanRulesUrlCtrl.text = defaultUrl;
                   _saveConfig();
                   _syncRules();
