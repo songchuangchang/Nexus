@@ -1,0 +1,31 @@
+<!--
+  build153（用户「兼容按 OPPO 和谷歌来」）：通知**小图标**的白色剪影版。
+
+  为什么要单独做这张，而不是继续用应用图标（彩色 mipmap）：
+  1. Google 对通知小图标的要求是"**白色剪影 + 透明底**"——系统按 alpha 着色，
+     彩色位图带不透明底会被涂成一整块，状态栏上就是一个圆角方块（在 Android 12+ 尤其明显）。
+  2. OPPO 的《流体云模板 2.0》同样要求服务图标：胶囊左边那位 [A]/[A0] 是图标、
+     右边 [B] 是文本，且 [A1*] 服务图标**必配**（AOD/手表/气泡态兜底要用它）。
+     同一条图标在两家规范里都是"必须是单色可着色的那个"，不是 App 彩标。
+
+  原来 `smallIcon()` 刻意避开 VectorDrawable，理由是"低版本兼容坑" —— 那个坑是真的，
+  但边界在 **API ≤ 23**。本轮实测：`minSdkVersion = flutter.minSdkVersion`，而这套
+  Flutter（3.47）的默认值写在 `flutter_tools/gradle/.../FlutterExtension.kt:26` = **24**
+  ⇒ 通知小图标用 vector 已在支持范围内。而且同一条通知里的 `ic_live_done` / `ic_live_fail`
+  本来就是 vector（build152 起在渲染），"不能上 vector"这条理由在我们自己的代码里已经不成立。
+
+  画的是一个对话气泡 + 三个点（这个 App 的本职），三个点是 evenOdd 挖出来的洞
+  ⇒ 整张图只有一个 fillColor，系统着色后仍然读得出"AI 在跑一件事"。
+  刻意**不写 android:tint**：着色交给系统（与 `ic_live_done.xml` 同一条理由，
+  写死颜色必在深浅其中一套底色上看不见）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M7,3 h10 a3,3 0 0 1 3,3 v7 a3,3 0 0 1 -3,3 h-5.5 l-4.5,4 v-4 a3,3 0 0 1 -3,-3 v-7 a3,3 0 0 1 3,-3 z M7.2,10.5 a1.3,1.3 0 1 0 2.6,0 a1.3,1.3 0 1 0 -2.6,0 z M10.7,10.5 a1.3,1.3 0 1 0 2.6,0 a1.3,1.3 0 1 0 -2.6,0 z M14.2,10.5 a1.3,1.3 0 1 0 2.6,0 a1.3,1.3 0 1 0 -2.6,0 z" />
+</vector>

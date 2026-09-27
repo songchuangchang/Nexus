@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  build152（灵动岛 · 终态图标）：Android 16 ProgressStyle 的进度条端点图标（成功 = 勾）。
+  为什么只在这一族 API 里用（`setProgressEndIcon`）：用户 150/151 两轮的原话都是
+  「完成之后…也没显示完成√」——文字侧已经写了「· 已完成」，但那行在两行制的岛上
+  很容易被截掉，图形才是"扫一眼就知道结束了"的那个信号。
+  为什么**不写 android:tint**：通知/岛会按深浅色底色自己着色，写死一个颜色必有一套
+  底色上看不见（与 `live_task_center.dart` 里「不在通知里塞 emoji」是同一条理由：
+  同一个字形在 ColorOS / MIUI / 原生上渲染各不相同，颜色更不可控）。
+  fillColor 给白只是给"未被着色"这种情况一个可见的默认值，矢量本身不含品牌色。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z" />
+</vector>

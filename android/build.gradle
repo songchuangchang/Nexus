@@ -1,0 +1,31 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://maven.aliyun.com/repository/public' }
+    }
+}
+
+def newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
+rootProject.layout.buildDirectory.value(newBuildDir)
+
+subprojects {
+    def newSubprojectBuildDir = newBuildDir.dir(project.name)
+    project.layout.buildDirectory.value(newSubprojectBuildDir)
+
+    // v1.3.6：file_picker / image_picker 等插件自带 compileSdk=34，
+    // 但传递依赖 flutter_plugin_android_lifecycle 要求 ≥36 → AAR metadata 校验失败。
+    // 必须在 evaluationDependsOn(":app") 之前注册 afterEvaluate，
+    // 否则 :app 被提前求值后这里会报 "Cannot run afterEvaluate when already evaluated"。
+    afterEvaluate { project ->
+        if (project.plugins.hasPlugin("com.android.library") ||
+            project.plugins.hasPlugin("com.android.application")) {
+            def csdk = project.android.compileSdk
+            if (csdk == null || csdk < 36) {
+                project.android.compileSdk = 36
+            }
+        }
+    }
+
+    project.evaluationDependsOn(":app")
+}

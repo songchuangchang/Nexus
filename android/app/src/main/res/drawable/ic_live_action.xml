@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  build170（真机反馈缺陷 #97 · 灵动岛第三态「等你回答」的端点图标）。
+
+  为什么要有第三枚（`ic_live_done` / `ic_live_fail` 之外）：
+  原生侧过去只按 done/ok 两个二分（`LiveNotification.kt`），于是一轮结束在反问上时
+  `ok=true` 被挂上了勾、标题写成「· 已完成」—— 机主 27 日看到的正是这一句谎：
+  那一轮根本没跑完，也不会自己往下走。规格见
+  `docs/UI_MOCK_island_states_20260926.html` 那张表的「需要你处理」那一行。
+
+  为什么是**琥珀**（#FFB300）而不是红色：设计稿那一节写得很清楚 ——
+  红色（errorContainer）在本仓的口径里专指"跑失败了"，把"等你回答"染红
+  就是吓人的假故障，和 165 撤掉的那批「把本端关线说成网络断了」是同一族。
+  三角 + ！ 的**形状**已经把"要你处理"说完了，颜色只负责说"这不是坏了"。
+
+  为什么这一枚**写了 fillColor、与上面两枚（#FFFFFFFF）不同**：
+  勾与叉的差别全在形状上，任何底色下都读得通，所以它们不给颜色、让系统着色；
+  这一枚要传达的第二层信息恰恰是"琥珀 ≠ 红"，全被着色成单色就丢了那一层，
+  而本仓 R1 闸禁止把 ⚠(U+26A0) 当字符写进标题（码段 U+2600–U+27BF）⇒
+  图形只能走 drawable，颜色也就只能画在矢量里。
+  仍然**不写 android:tint**（与另外两枚同一条纪律：写死 tint 会覆盖系统着色，
+  深浅两套底色必有一套看不见）。⚠️ 各家 ROM 对 `setProgressEndIcon` 到底
+  是"按原色画"还是"强制单色"没有公开承诺，这一枚在 ColorOS 上显不显得到琥珀
+  只能真机验收 —— 属"装机未验"，不许据此写"已修复"。
+
+  形状取自 Material `warning` 那一族的轮廓（三角外框 + 感叹号），24dp 视口与
+  另外两枚逐字同尺寸：端点图标那三个槽位共用一套度量，尺寸不一致就是排版事故。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFB300"
+        android:pathData="M1,21h22L12,2 1,21zM13,18h-2v-2h2v2zM13,14h-2v-4h2v4z" />
+</vector>

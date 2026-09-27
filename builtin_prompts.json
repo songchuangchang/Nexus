@@ -1,0 +1,41 @@
+{
+  "version": "1.7.32",
+  "description": "Nexus 内置插件 ReAct 协议与触发格式远程更新源。更新此文件无需发布 App。",
+  "formats": {
+    "search": "<search query=\"搜索关键词\" depth=\"basic|advanced\" />",
+    "download": "<download intent=\"true|false\" canonical=\"应用名\" keywords=\"k1,k2\" domains=\"d1,d2\" platform=\"android|pc\" url=\"直链\" type=\"app|pdf|mp4|jpg|doc|any\" query=\"文件名\" />",
+    "ask_user": "<ask_user>问题||选项1||选项2</ask_user>",
+    "self_check": "<self_check continue=\"true|false\" reason=\"原因\" />",
+    "answer": "<answer>最终回复（支持 Markdown）</answer>",
+    "mcp_call": "<mcp_call plugin_id=\"...\" tool=\"...\">{JSON 参数对象}</mcp_call>",
+    "skill_call": "<skill_call name=\"skill.xxx\">{可选 JSON}</skill_call>"
+  },
+  "triggerWords": {
+    "download": ["下载", "安装包", "APK", "保存到本地"],
+    "search": ["搜索", "查一下", "最新资讯", "实时数据"],
+    "ask_user": ["请选择", "需要确认", "请问你想要"],
+    "self_check": ["系统自检", "自检"]
+  },
+  "plugins": [
+    {
+      "id": "nexus.builtin.search",
+      "promptProtocol": "【搜索工具】使用说明：\n- 当你需要最新资讯、实时数据或超出训练数据截止日期的信息时，调用搜索工具。\n- 输出：<search query=\"搜索关键词\" depth=\"basic|advanced\" />\n  - query：搜索引擎友好的中文或英文关键词，短语即可，不要自然长句。\n  - depth：basic（快速查询，默认）或 advanced（深入调研，耗 token 约 2 倍，命中更全）。\n- 示例 1：最新的 Flutter 3.x 特性\n  <search query=\"Flutter 3 new features 2026\" depth=\"basic\" />\n- 示例 2：深度调研微信小程序最新架构\n  <search query=\"微信小程序 架构 2026 最新\" depth=\"advanced\" />\n- 搜索结果会以\"工具消息\"形式返回给你，你再基于结果给出答案。"
+    },
+    {
+      "id": "nexus.builtin.download",
+      "promptProtocol": "【下载工具】使用说明：\n- 使用场景：用户请求下载 APP 安装包、图片、视频、文档、PDF、压缩包等任何需要\"保存到本地文件\"的内容。\n- ⚠️ 核心规则：只要识别出下载意图，【必须】输出 <download> 标签触发下载流程。【禁止】用 <answer> 文字回复\"请去官网下载\"代替——那样用户什么也下载不到。\n- 协议格式：<download intent=\"true|false\" canonical=\"应用通用名\" keywords=\"关键词1,关键词2,关键词3\" domains=\"官域1,官域2\" platform=\"android|pc\" url=\"直链URL\" type=\"app|pdf|mp4|jpg|doc|any\" query=\"文件名关键词\" />\n- 字段类型与默认值：所有字段都是 XML 属性字符串；intent 默认 false，仅 true/1/yes/是视为执行下载；canonical、keywords、domains、url、query 默认空字符串；platform 缺省默认 android，只接受 android 或 pc；type 缺省 app，type=\"download\" 也按 app 处理。keywords 与 domains 使用英文逗号或中文逗号分隔。\n- 三种互斥调用方式（每次只走一条）：\n  ① URL 直链下载：url 为以 http 开头的 URL；url 优先，其他字段可省略，type 默认 app。\n  ② 通用文件搜索下载：type 不能为 app 且 query 非空；type 使用文件类型字符串（如 pdf、mp4、jpg、doc、any），query 是非空文件名或检索关键词。\n  ③ APP 搜索下载：type=\"app\" 或省略 type，intent=\"true\"，canonical 填应用通用名，keywords 填一个或多个检索关键词，domains 填官方域名（可为空），platform 填 android 或 pc。\n- 信息不足策略：若应用名、文件名、直链 URL 或其他必要下载目标不明确，先输出 <ask_user> 补齐信息，再输出 <download>；不要用 <answer> 代替。用户未说明平台不算信息不足，直接使用 platform=\"android\"。只有用户明确要求选择平台，或明确存在 Android/PC 平台分歧且需要用户决定时，才输出 <ask_user> 询问平台。\n- 示例 1：下载微信 APP 安卓版\n  <download intent=\"true\" canonical=\"微信\" keywords=\"微信,WeChat APK,微信安卓版\" domains=\"weixin.qq.com\" platform=\"android\" />\n- 示例 2：2026 年 PDF 报告\"年度技术白皮书\"\n  <download intent=\"true\" type=\"pdf\" query=\"2026 年度技术白皮书 pdf\" />\n- 示例 3：下载直链 https://example.com/some-app.apk\n  <download intent=\"true\" url=\"https://example.com/some-app.apk\" />\n- ❌ 错误做法：用 <answer>回复\"您可以去官网下载\"——用户无法直接下载。\n- ✅ 正确做法：输出 <download intent=\"true\" canonical=\"...\" ... /> 标签，系统会自动搜索来源并弹出下载确认面板。\n- 非下载意图 → intent=\"false\"，将被忽略不执行任何操作。"
+    },
+    {
+      "id": "nexus.builtin.ask_user",
+      "promptProtocol": "【反问工具】使用说明：\n- 当信息不足以推进下一步时（如下载 APP 不知道手机版还是电脑版），反问用户。\n- <ask_user> 标签内必须包含问题和 2~8 个选项，问题与选项之间用两个竖线 || 分隔。\n- 协议格式：<ask_user>问题文案||选项1文案||选项2文案||选项3文案...</ask_user>\n- 示例：<ask_user>你想要下载哪个版本？||手机版 Android||电脑版 Windows||电脑版 Mac</ask_user>\n- 禁止只写问题不带选项。用户选择会以用户消息注入下一轮上下文。"
+    },
+    {
+      "id": "nexus.builtin.self_check",
+      "promptProtocol": "【自检工具】使用说明：\n- 当你在工作区看到[系统自检]消息时，必须输出 <self_check> 标签判定下一步。\n- 格式：<self_check continue=\"true|false\" reason=\"简要说明原因\" />\n- continue=true 表示继续思考或搜索；continue=false 表示信息足够或超过最大轮次，停止思考并总结答案。\n- 判定为 false 后，建议紧跟 <answer>...</answer> 给出最终回复。"
+    },
+    {
+      "id": "nexus.builtin.answer",
+      "promptProtocol": "【最终答案】使用说明：\n- 当你准备好给出最终回复时，使用 <answer>...</answer> 把内容包住。\n- 支持完整 Markdown；如前面做了搜索，可以引用搜索到的链接和来源名称。\n- 输出 <answer> 后循环立即结束，请确保把需要表达的内容一次写完。\n- 语言跟随用户：用户用中文回答中文，用户用英文回答英文，不要中英混杂。"
+    }
+  ]
+}

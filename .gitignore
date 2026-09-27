@@ -1,0 +1,59 @@
+# Flutter
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+*.lock
+!pubspec.lock
+
+# Cache (project-specific)
+.gradle/
+.gradle_user_home/
+.pub_cache/
+.pub-cache/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+*.keystore
+
+# ==========================================================================
+# 构建产物与临时文件（2026-09-18 补充）
+# --------------------------------------------------------------------------
+# 为什么补：原文件只有上面 28 行基础项，完全没覆盖以下产物 —— 它们长期出现在
+# `git status` 里，一旦有人用 `git add -A` 就会把 APK、JVM 崩溃日志
+# （hs_err_pid*.log）、设备截图、UI dump 一起提交进仓库。
+# 本次按「全量扫描」盘点结果补齐，共 59 项不再进入 git 视野。
+#
+# 注意：一律用开头 `/` 锚定**仓库根**，避免 `*.png`/`*.xml` 这类宽泛通配
+# 误伤 `android/app/src/main/res/**` 下的清单与图标资源。
+#
+# `apks/`：2026-09-18 决定**先不入库**（本仓库 109 次提交从未跟踪 APK，
+# 既有做法是发 GitHub Release + Z 盘 sha256 对拷）→ 先忽略防误提交，
+# 待新包构建出来后再决定是否专门提交一次。
+# ==========================================================================
+/*.log
+/hs_err_pid*.log
+/*.png
+/*.xml
+/*.txt
+!/NOTICES.txt
+/*_tmp.json
+/*_payload.json
+/.codegraph/
+/.code-graph.json
+/.local/
+/widget_analyser_report/
+/temp/
+/_patch_*.py
+/apks/

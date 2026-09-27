@@ -1,0 +1,22 @@
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+# Remember to never publicly share your keystore.
+# See https://flutter.dev/to/reference-keystore
+key.properties
+**/*.keystore
+**/*.jks
+
+# build99（F3）：JVM 致命错误日志与 Kotlin 错误日志
+# build99 构建中 Android Studio / Gradle 在 Kotlin 编译失败时生成的本地日志，
+# 不属于源码，提交即污染仓库
+hs_err_pid*.log
+_hs_err_pid*.log
+.kotlin/
+.kotlin_errors/

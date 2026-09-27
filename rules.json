@@ -1,0 +1,27 @@
+{
+  "version": "1.7.37",
+  "description": "Nexus 本地安全扫描（LocalScanService）远程规则源。rules 内的规则按 id 覆盖/追加到内置规则库；disableBuiltin 可停用指定内置规则（最多 5 条）。更新此文件无需发布 App。",
+  "disableBuiltin": [],
+  "rules": [
+    {
+      "id": "LS-RMT-001",
+      "title": "Base64 包裹的可疑命令解码执行",
+      "description": "检测到 base64 解码后立即 eval/exec/系统调用的组合，常见混淆手法。",
+      "severity": "high",
+      "category": "dangerous-code",
+      "pattern": "(base64\\.(b64decode|decodebytes)|atob\\s*\\().{0,300}(eval\\s*\\(|exec\\s*\\(|os\\.system\\s*\\(|Function\\s*\\()",
+      "enabled": true,
+      "targets": ["skill", "mcp"]
+    },
+    {
+      "id": "LS-RMT-002",
+      "title": "诱导 AI 隐藏操作的元提示词",
+      "description": "检测到要求 AI 不向用户透露某段文本/操作的指令（MCP 投毒常见话术）。",
+      "severity": "high",
+      "category": "prompt-injection",
+      "pattern": "(do\\s+not|don'?t|never)\\s+(tell|inform|show|reveal|mention)\\s+(the\\s+)?(user|human)",
+      "enabled": true,
+      "targets": []
+    }
+  ]
+}

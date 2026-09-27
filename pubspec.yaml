@@ -1,0 +1,54 @@
+name: aichat
+description: Nexus - Custom API AI Chat Client
+publish_to: 'none'
+version: 1.7.113+170  # build170：修复回答里混入模型自述、短英文回答整条消失；灵动岛新增「等你回答」状态。
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.3.2
+  sqflite: ^2.4.1
+  # 桌面版（windows/）：sqflite 无 Windows 实现，用 ffi 版接管 databaseFactory
+  # （storage_service.init() 里按平台分派，手机路径不受影响）
+  sqflite_common_ffi: ^2.3.6
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  flutter_secure_storage: ^9.2.2
+  http: ^1.2.2
+  crypto: ^3.0.7
+  flutter_markdown: ^0.7.4
+  markdown: ^7.3.1
+  provider: ^6.1.2
+  uuid: ^4.5.1
+  intl: ^0.20.3
+  open_filex: ^4.5.0
+  url_launcher: ^6.3.1
+  # v1.3.6：📎 附件功能
+  image_picker: ^1.1.2
+  file_picker: ^8.1.4
+  archive: ^4.2.0
+  syncfusion_flutter_pdf: ^34.2.5  # PDF 文本抽取（Flutter 18.3+ 无需注册 license key，不弹横幅）
+  google_mlkit_text_recognition: ^0.16.0  # 本机 OCR：非视觉模型把图片文字注入上下文
+  local_auth: ^2.3.0  # 生物识别（指纹/面部解锁）
+  # v1.7.32：首页会话列表左滑删除（替代内置 Dismissible，避免与 Scaffold 抽屉手势在竞技场冲突）
+  flutter_slidable: ^4.0.3
+  # build101（B7 分享）：系统分享面板（导出对话 / 分享 AI 回答）
+  share_plus: ^10.1.4
+  geolocator: ^14.0.2
+  video_player: ^2.14.0
+  webview_flutter: 4.14.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  generate: true  # v1.7.24 (#11) gen-l10n
+  uses-material-design: true

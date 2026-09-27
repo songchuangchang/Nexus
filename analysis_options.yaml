@@ -1,0 +1,21 @@
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+    # build129：temp/ 是 .gitignore 里的 scratch 目录（分析脚本、日志、备份副本）。
+    # 里面留过一个 temp/old_bp.dart（builtin_plugins.dart 的备份，相对 import 全是
+    # 按 lib/plugins/ 写的）→ 全量 `flutter analyze` 恒定报 324 个 uri_does_not_exist
+    # / undefined_class，把「analyze 必须归零」这道门彻底废掉。排除后恢复可用。
+    - temp/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    avoid_print: false

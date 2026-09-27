@@ -1,0 +1,42 @@
+{
+  "version": "1.7.32",
+  "description": "Nexus API 模板远程更新源。按模板 id 覆盖内置服务商，全新服务商自动追加，更新此文件无需发布 App。",
+  "templates": [
+    {
+      "id": "deepseek",
+      "nameZh": "DeepSeek",
+      "nameEn": "DeepSeek",
+      "defaultConfigName": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "defaultModel": "deepseek-chat",
+      "group": "domestic",
+      "hasFreeTier": false,
+      "freeDetailZh": "API 按量付费，具体额度与价格以 DeepSeek 官方控制台为准",
+      "freeDetailEn": "Usage-based API pricing; check the official DeepSeek console for current credits and rates",
+      "descZh": "DeepSeek 官方 API，提供通用对话与推理模型",
+      "descEn": "Official DeepSeek API for chat and reasoning models",
+      "color": "purple",
+      "icon": "all_inclusive",
+      "models": [
+        {
+          "id": "deepseek-chat",
+          "nameZh": "DeepSeek Chat",
+          "nameEn": "DeepSeek Chat",
+          "recommended": true,
+          "isFreeModel": false,
+          "noteZh": "通用对话模型",
+          "noteEn": "General chat model"
+        },
+        {
+          "id": "deepseek-reasoner",
+          "nameZh": "DeepSeek Reasoner",
+          "nameEn": "DeepSeek Reasoner",
+          "recommended": false,
+          "isFreeModel": false,
+          "noteZh": "推理模型",
+          "noteEn": "Reasoning model"
+        }
+      ]
+    }
+  ]
+}

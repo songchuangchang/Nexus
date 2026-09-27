@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  build97 (P2-9 修复)：
+  旧配置把 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 写进 <domain>——
+  Android 的 <domain> 只按主机名精确/通配匹配，不支持 CIDR，三条永远不命中，
+  用户直连局域网 HTTP 的 Ollama / LM Studio / 自部署服务实际被禁
+  （CLEARTEXT communication not permitted）。
+  Android 无法按网段放行 HTTP；要支持局域网 HTTP 只能全局允许 cleartext：
+  - 本 App 的外网 API 全部走 HTTPS，HTTP 仅用于用户自填的本地模型地址；
+  - 仍保留系统 CA 信任链（HTTPS 校验不变）。
+  若以后要重新收紧，可改为只在 direct flavor 用本配置，store flavor 另设
+  一份 cleartextTrafficPermitted="false" 的配置。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

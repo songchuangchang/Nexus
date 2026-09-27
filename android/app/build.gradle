@@ -1,0 +1,106 @@
+import java.util.Properties
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.example.aichat"
+    compileSdk = 36
+    ndkVersion = flutter.ndkVersion
+
+    lint {
+        // build112：release 阻断式 lint（:app:lintVitalAnalyzeRelease）在本机
+        // 会在「Android Lint: Creating lint class loader」处卡死（两次编译均在
+        // 2m01s 恒定超时被杀，日志无任何报错；Gradle daemon 随之退出）。
+        // release 构建的正确性由 R8 混淆/资源压缩 + CI 侧的 flutter analyze +
+        // flutter test 把关，lint 属附加静态检查，不应阻断出包。
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.aichat"
+        minSdkVersion = flutter.minSdkVersion
+        targetSdk = 36
+        // 显式从 Flutter 插件注入的属性读取（修 "系统识别不出版本号"）
+        // 对应 pubspec.yaml 的 `version: 1.2.1+4` => versionName=1.2.1  versionCode=4
+        versionCode = flutter.versionCode as int
+        versionName = flutter.versionName as String
+    }
+
+    signingConfigs {
+        release {
+            keyAlias = keystoreProperties['keyAlias']
+            keyPassword = keystoreProperties['keyPassword']
+            storeFile = keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword = keystoreProperties['storePassword']
+        }
+    }
+
+    buildTypes {
+        release {
+            // B-031：签名与混淆/资源压缩**解耦** —— release 恒开 R8 与资源压缩；
+            // 缺 key.properties 只影响签名，并在配置阶段明确告警，不再静默产出
+            // 「debug 签名 + 不混淆 + 不压资源」的假 release 包（体积虚大且无告警）。
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.release
+            } else {
+                logger.warn("WARNING: key.properties 不存在 —— release 将使用 debug 签名，" +
+                        "请勿分发此产物；请配置 android/key.properties 后重新构建。")
+                signingConfig = signingConfigs.getByName("debug")
+            }
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // v1.7.24（十大维度·构建与发布）：多渠道打包
+    // 用法：flutter build apk --release --flavor store  /  --flavor direct
+    flavorDimensions += "channel"
+    productFlavors {
+        store {
+            dimension = "channel"
+            manifestPlaceholders = [appChannel: "store"]
+        }
+        direct {
+            dimension = "channel"
+            manifestPlaceholders = [appChannel: "direct"]
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.20"
+    // build142（灵动岛）：Android 16 的 Live Updates（`ProgressStyle` + `setRequestPromotedOngoing`）
+    // 实测 **1.17.0 起**才有这两个 API（1.16.0 无），1.18.0 是本机 Gradle 缓存里的最新版。
+    // 之所以要手动抬这一层：flutter_local_notifications 至今没接这族 API（上游 PR #2810 未合并），
+    // 我们走的是自写 Kotlin + MethodChannel，就直接依赖 androidx.core 的 compat 层。
+    implementation "androidx.core:core-ktx:1.18.0"
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+    // v1.7.24（十大维度·性能）：LeakCanary 内存泄漏监控（仅 debug 生效，2.x 自动初始化）
+    debugImplementation "com.squareup.leakcanary:leakcanary-android:2.14"
+}
