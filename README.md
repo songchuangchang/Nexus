@@ -96,11 +96,15 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 
 覆盖安装即可，**不需要先卸载**——卸载会连聊天记录和存进系统保险库的 API Key 一起清掉。
 
-App 内「设置 → 关于」会检查更新，读的就是本仓库的 latest release。
+若系统提示「应用未安装」或签名不一致，通常是旧包为 debug 签名（例如自己从源码构建过）：
+正式签名的包之间覆盖升级不会有此提示。请先在 App 内备份数据，再卸载重装，不要直接卸载。
+
+App 内「设置 → 关于」会检查更新，读的就是本仓库的 latest release；该页显示完整版本号，
+系统应用信息里只显示 `1.7.113` 这种不带构建号的短版本号，属正常现象。
 
 ## 🛠️ 从源码构建
 
-需要 Flutter 3.47+（Dart 3.13+）：
+需要 Flutter 3.47+（Dart 3.13+）与 JDK 17：
 
 ```bash
 flutter pub get
@@ -109,8 +113,11 @@ flutter test -j 2
 flutter build apk --release --flavor direct --split-per-abi
 ```
 
-`--flavor direct` 是"从 GitHub Releases 自更新"这一档；测试并发固定 `-j 2`，
-默认并发会抢 pub 锁导致假失败。
+`--flavor direct` 是"从 GitHub Releases 自更新"这一档，另有 `store` 档面向应用商店渠道，
+两档目前同源。测试并发固定 `-j 2`——默认并发会抢 pub 锁，出来的是假失败。
+
+release 包恒开 R8 混淆与资源压缩；签名读取 `android/key.properties`，
+该文件缺失时 Gradle 会明确告警并退回 debug 签名，这种包不能覆盖正式版，也不要分发。
 
 ## 🔒 隐私与数据
 
