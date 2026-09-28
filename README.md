@@ -128,10 +128,10 @@ flutter build apk --release --flavor direct --split-per-abi
 
 ## 📄 版本与许可
 
-版本号形如 `1.7.113+170`，`+` 后为构建号。历史版本及说明见 Releases 页。
-本项目许可见 `LICENSE`；第三方组件许可清单见
-[docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md)，
-App 内「设置 → 关于」也指向该文件。
+- 版本号形如 `1.7.113+170`，`+` 后为构建号
+- 变更记录见 [CHANGELOG.md](CHANGELOG.md)；历史版本及发布说明见 [Releases](https://github.com/songchuangchang/Nexus/releases)
+- 本项目许可见 [LICENSE](LICENSE)
+- 第三方组件许可清单见 [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md)，App 内「设置 → 关于」也指向该文件
 
 ---
 
