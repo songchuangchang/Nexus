@@ -9,7 +9,6 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 <br />
 
 ![Android](https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white)
-![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat-square&logo=dart&logoColor=white)
 ![Release](https://img.shields.io/github/v/release/songchuangchang/Nexus?style=flat-square&logo=github)
@@ -93,7 +92,7 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 |---|---|
 | 近几年的手机、平板（绝大多数） | `arm64-v8a` |
 | 很老的 32 位机型 | `armeabi-v7a` |
-| 安卓模拟器 / Windows 11 on ARM | `x86_64` |
+| 安卓模拟器 | `x86_64` |
 
 覆盖安装即可，**不需要先卸载**——卸载会连聊天记录和存进系统保险库的 API Key 一起清掉。
 
