@@ -12,6 +12,7 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat-square&logo=dart&logoColor=white)
 ![Release](https://img.shields.io/github/v/release/songchuangchang/Nexus?style=flat-square&logo=github)
+![Beta](https://img.shields.io/badge/Status-Beta-D97706?style=flat-square)
 ![License](https://img.shields.io/badge/License-BSD_3--Clause-398AC7?style=flat-square)
 ![Privacy](https://img.shields.io/badge/Privacy-Local_First-34D399?style=flat-square&logo=shield&logoColor=white)
 
@@ -32,6 +33,7 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 - [🛠️ 从源码构建](#-从源码构建)
 - [🔒 隐私与数据](#-隐私与数据)
 - [🛡️ 权限](#-权限)
+- [⚠️ 免责声明](#-免责声明)
 - [📄 版本与许可](#-版本与许可)
 
 </details>
@@ -94,6 +96,8 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 | 很老的 32 位机型 | `armeabi-v7a` |
 | 安卓模拟器 | `x86_64` |
 
+当前所有安装包均为 **Beta 测试版**，功能与稳定性仍在打磨，遇到问题欢迎反馈。
+
 覆盖安装即可，**不需要先卸载**——卸载会连聊天记录和存进系统保险库的 API Key 一起清掉。
 
 若系统提示「应用未安装」或签名不一致，通常是旧包为 debug 签名（例如自己从源码构建过）：
@@ -131,6 +135,13 @@ release 包恒开 R8 混淆与资源压缩；签名读取 `android/key.propertie
 - **通知 / 前台服务**：可选，请在通用设置修改
 - **生物识别**：可选，用于打开 App、查看已保存的 Key
 - **相机 / 相册 / 麦克风**：仅在主动附图、附文件或听写时使用
+
+## ⚠️ 免责声明
+
+- AI 生成内容仅供参考，可能存在错误，重要决定请自行核实
+- API Key 由你填写、请求费用由你与模型服务商结算；因配置错误或模型自主调用工具
+  产生的费用，本软件不承担责任
+- 本软件按"原样"提供，不含任何明示或暗示的担保，完整条款见 [LICENSE](LICENSE)
 
 ## 📄 版本与许可
 
