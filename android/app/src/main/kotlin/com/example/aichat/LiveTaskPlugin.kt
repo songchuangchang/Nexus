@@ -27,7 +27,7 @@ import java.util.Locale
  *
  * 冷启动点通知时 Dart 还没就绪，所以路由载荷与分享通道用同一套缓冲打法：
  * 先存，等 Dart 调 `getInitialRoute` 取走；热启动则直接 invokeMethod 推过去。
- */
+ */
 class LiveTaskPlugin(
     private val activityProvider: () -> Activity?,
     private val appContext: () -> Context,
@@ -55,11 +55,11 @@ class LiveTaskPlugin(
         // （build165 #88 那两个 target 常量的同一配方）。
 
         /**
-         * 交回最近几条进程退出记录。取 5 条而不是 1 条：机主一早上会连着开关好几次 App，
+         * 交回最近几条进程退出记录。取 5 条而不是 1 条：用户一早上会连着开关好几次 App，
          * 只回最近一条就会把"这一次为什么没心跳"和"上一次为什么被杀"错配成同一件事。
          * 上限也不许放大 —— description 最长 255 字，每条还带 trace 之外的几个数值，
          * 这一行是要进导出日志的。
-         */
+         */
         private const val MAX_EXIT_RECORDS = 5
 
         /** description 截断长度（原生侧就截，不把 255 字的长句整条塞进 Dart 日志）。 */
@@ -307,7 +307,7 @@ class LiveTaskPlugin(
      * （真机取证：docs/BUGSCAN_build164_20260925.md ⑬ —— AOSP 的 Doze / 网络限制 /
      * cached 进程冻结三条都被官方原文排除，剩下的是厂商管控，且没有可申请的免冻结接口）。
      * 所以这一条能力只做到"把你送到那一屏"为止，页面上的文案也只承诺这一点。
-     */
+     */
     private fun openSettingsPage(ctx: Context, target: String): String {
         val action = when (target) {
             TARGET_APP_DETAILS -> Settings.ACTION_APPLICATION_DETAILS_SETTINGS
@@ -386,7 +386,7 @@ class LiveTaskPlugin(
      *  · 取的是**这个包名的历史记录**（pid 传 0），不是"当前进程"：要看的恰恰是上一世；
      *  · 这是一次 system_server 的 IPC，调用方只许在**回到前台时问一次**
      *    （Dart 那侧的锚点由 `test/build165_heartbeat_test.dart` 钉住）。
-     */
+     */
     private fun exitReasonsSnapshot(ctx: Context): Map<String, Any?> {
         // 版本判断是硬要求：本模块 minSdk 24，而 getHistoricalProcessExitReasons 要 API 29。
         // 低版本必须回一句"系统里没有这个接口"，而不是在这里抛、被上面的 catch 记成一次故障。

@@ -64,7 +64,7 @@ String stopNote({
           : '_(Ended early by the system, no valid answer generated)_');
 }
 
-/// 一条流被关掉时，**到底是谁干的**（build158，机主 2026-09-25 那份导出的直接后果）。
+/// 一条流被关掉时，**到底是谁干的**（build158，用户 2026-09-25 那份导出的直接后果）。
 ///
 /// build165（#87）加 `leftAppAborted` 这一格：那一类关闭既不是用户按的、也不是网络故障，
 /// 而是**我们自己在 `paused`/`hidden` 那一刻把连接收起来的**。旧形状下它没有自己的格子，
@@ -101,7 +101,7 @@ enum StreamEndKind {
 /// `onResearchEnd(error: null, quiet: endedEarly=false)` 在灵动岛上写成
 /// **「AI 思考 · 已完成」**，而那一轮其实一个字的答案都没交付完
 /// （49 秒里收了 747 个 chunk，然后连接被对端关闭）。
-/// 机主报的「后台还是不行」与此同一条：岛说完成了，App 里只有一句
+/// 用户报的「后台还是不行」与此同一条：岛说完成了，App 里只有一句
 /// 「_(本轮由系统提前结束思考，输出当前进度)_」，没有重试入口、也没有网络原因。
 ///
 /// 判据顺序（**先问人，再问是不是我们自己关的，最后才问网**）：
@@ -110,7 +110,7 @@ enum StreamEndKind {
 ///  · `leftAppAborted`（build165 新增）⇒ 本端在离开 App 时收的线。这一格**必须排在
 ///    错误串匹配之前**：我们自己 `client.close()` 之后 dart:io 抛回来的正是
 ///    `Connection closed while receiving data` / `Software caused connection abort`
-///    那两条（机主日志里 8 次报错全是这两个形状），先匹配串就会把本端行为说成网络故障；
+///    那两条（用户日志里 8 次报错全是这两个形状），先匹配串就会把本端行为说成网络故障；
 ///  · 有停止请求但不是用户（退页 / MCP 触顶 / 熔断）⇒ `systemEnded`，
 ///    保持 build155 那条"既不写已完成也不写失败"的口径；
 ///  · 没人请求停止，而对端把连接关了 ⇒ `networkDropped`；

@@ -15,7 +15,7 @@
 ///  · `generatedFiles` 那一族只认 mp4/mov，html 会掉进 `Image.file` 的 errorBuilder
 ///    显示「图片已丢失」；
 ///  · 于是当时唯一真入口只剩文件管理页（`file_management_screen.dart` 走 readText 读盘）。
-///    真机日志佐证：整份导出里 `HtmlPreview` 这个 tag **0 命中**（机主从未进过预览页）。
+///    真机日志佐证：整份导出里 `HtmlPreview` 这个 tag **0 命中**（用户从未进过预览页）。
 ///
 /// 数据源为什么只有 `reasoningSteps`：工作区动作的内置插件（`builtin_plugins.dart`）
 /// 在每一步里就留着「正在写入 exports/xxx.html / 已保存」这类正文与结果摘要
@@ -87,7 +87,7 @@ class AgentArtifactCard {
 bool isRenderableArtifact(AgentArtifactCard card) =>
     card.rel.isNotEmpty && isHtmlPreviewFile(card.fileName);
 
-/// 点开的去向（2026-09-26 02:40 机主把三层并成一条：**「1 把常见的可以打开，
+/// 点开的去向（2026-09-26 02:40 用户把三层并成一条：**「1 把常见的可以打开，
 /// 2 全部都支持展示，3 不支持的什么都不说，就直接弹一个分享/默认应用打开」**）。
 ///
 /// 三层落到代码里只有两个去向，因为"全部都支持展示"这件事由**卡片本身**承担
@@ -123,7 +123,7 @@ List<AgentArtifactCard> collectArtifactCards(List<ReasoningStep> steps) =>
 /// App 内**渲染不了**的落盘产物（xlsx / docx / pdf / 图片 / 任意其它后缀）。
 ///
 /// 与 [collectArtifactCards] 共用同一个私有收集器，只把类型闸反过来 ⇒
-/// 两条合起来才是机主要的那句"全部都支持展示"，而"能不能 App 内开"只由
+/// 两条合起来才是用户要的那句"全部都支持展示"，而"能不能 App 内开"只由
 /// [agentArtifactTapFor] 一处回答（教训 #62：一个语义一份实现）。
 List<AgentArtifactCard> collectExternalArtifactCards(List<ReasoningStep> steps) =>
     _collectArtifactCards(steps, inApp: false);

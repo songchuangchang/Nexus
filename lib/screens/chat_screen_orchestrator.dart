@@ -163,12 +163,24 @@ extension ChatScreenOrchestratorExt on _ChatScreenState {
     }
 
     // ⑥ 本条消息的附件正文（编排器的 _call 只发文本、不解析多模态）
+    //
+    // build171：既然这条路上**图片一个字节都不出网**，占位串就不许写得像"读到了但里面没东西"。
+    // 原来的「未抽取到正文」在两小时内造成两次误判：模型据此编出"视觉识别流程也没返回任何
+    // 标签或置信度结果"（28 日 13:12 真机日志里那句就是它写的，本仓没有那样一个流程），
+    // 用户则以为附件读取坏了。图片这一支现在直说三件事：没发出、你看不到、别猜。
     final curAtt = StringBuffer();
     for (final a in userMsg.attachments) {
       final t = a.extractedText;
       if (t != null && t.isNotEmpty) {
         curAtt.write(
             '\n[附件] ${a.fileName}:\n${_clipForOrchestrator(t, kOrchAttachmentChars)}');
+      } else if (a.type == AttachmentType.image) {
+        curAtt.write('\n[附件] ${a.fileName}'
+            '（${isZh ? '图片未随本条请求发出（走的是编排路径，只发文本）——'
+                        '你看不到画面内容，请如实告知用户并建议改用普通对话发图，'
+                        '不要描述或猜测画面'
+                    : 'image not sent on this request (orchestrated path is text-only) — '
+                        'you cannot see it; tell the user, do not describe it'}）');
       } else {
         curAtt.write('\n[附件] ${a.fileName}'
             '（${isZh ? '未抽取到正文' : 'no extracted text'}）');
@@ -525,7 +537,7 @@ extension ChatScreenOrchestratorExt on _ChatScreenState {
       // build165 ①：本端在"离开 App"那一刻收的线 ⇒ **既不是编排失败、也不是用户停止**。
       // 这一支必须排在下面那条 `_logger.error('编排异常')` 与 `return false` 之前：
       //  · 走 `return false` 会回退 ReAct，而那等于在后台里再开一条流（正是本轮要挡的事）；
-      //  · 记 error 会把一次省电行为写成崩溃，读日志的人（和机主自己）又一次猜原因。
+      //  · 记 error 会把一次省电行为写成崩溃，读日志的人（和用户自己）又一次猜原因。
       // 判据与全部文案都取自 `drop_continue.dart`（这里不写第二份字符串）。
       if (leftAppAbortCarried(
           abortedRound: _leftAppAbortRound, round: _reactRound)) {

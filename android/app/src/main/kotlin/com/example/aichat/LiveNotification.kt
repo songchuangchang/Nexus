@@ -37,7 +37,7 @@ import org.json.JSONObject
  * 1. **任何 Android 16 专属调用都必须版本守卫 + try/catch** —— 猜错只能让通知变朴素，不能崩 App；
  * 2. **Dart 每次传整份快照，这里幂等重绘** —— 不留「上一份状态」在原生侧，避免两端各有一半真源；
  * 3. 进行中通知**低打扰**（不响铃不振动），只有完成/失败/待回答才走高打扰渠道。
- */
+ */
 object LiveNotification {
 
     /** 常驻进度（低打扰）：整个 App 只有一条，任务再多也合并成摘要 */
@@ -49,7 +49,7 @@ object LiveNotification {
      * 共用 ID_ONGOING 会被服务自己的 `onDestroy → cancel(ID_ONGOING)` 秒撤 ——
      * 于是「Android 12+ 用户点完下载立刻切后台」这条最常见的路径变成整条功能静默
      * （本轮自审抓到的 P0）。分开之后：兜底那条不归服务管，只由下一次渲染覆盖。
-     */
+     */
     const val ID_ONGOING_FALLBACK = 1002
     const val CHANNEL_ONGOING = "nexus_live_ongoing"
 
@@ -69,7 +69,7 @@ object LiveNotification {
      * 为什么有上限：岛/通知里那条带很窄，段数一多每段就细到看不出色差 ——
      * 看不出的分段等于没有，还会把「哪几段做完了」从"能读"变成"要盯着看半天"。
      * 所以第 5 段往后合并成最后一段（段长 = 余下的阶段数）。
-     */
+     */
     private const val LIVE_SEGMENT_CAP = 5
 
     /** 未完成段的 alpha（25% 不透明度）：与强调色同色相压淡，见 [accentArgb]。 */
@@ -82,7 +82,7 @@ object LiveNotification {
      * `liveDisplayPriority()`：0 等人答 / 1 失败 / 2 进行中 / 3 已完成）。
      * 这里不复制第二张判据表，只按传来的数字分桶；这个数字是**桶的个数**不是档位含义，
      * 越界的值一律夹进边界（旧包传来的 0..3 落在边界内，坏数据只是退回排在最后）。
-     */
+     */
     private const val LIVE_PRIO_BUCKETS = 4
 
     /** 主题问不到强调色时的兜底蓝（`?android:attr/colorAccent` 在部分 ROM 上取不到值）。 */
@@ -141,7 +141,7 @@ object LiveNotification {
      *
      * 返回要贴到前台服务上的通知；调用方（服务）**必须**把它交给 `startForeground`，
      * 否则服务会在几秒内被系统掐掉（Android 8+ 硬规则）。
-     */
+     */
     fun renderOngoing(ctx: Context, snapshot: JSONObject): Notification {
         ensureChannels(ctx)
         val tasks = snapshot.optJSONArray("tasks") ?: org.json.JSONArray()
@@ -380,7 +380,7 @@ object LiveNotification {
      *   真正的结论看 [postedDiag] 输出的 `promotedFlag=`。
      * 三者组合能把「没有岛」分成三类原因：应用被关 / 我们写法不合条件 / 厂商就是不给渲染 ——
      * 但第三类**只能由 [postedDiag] 判**，别拿本函数的 `localPromotedFlag=false` 当证据。
-     */
+     */
     private fun diagnose(ctx: Context, n: Notification): String {
         val sdk = Build.VERSION.SDK_INT
         if (sdk < 36) return "sdk=$sdk 不支持 Live Updates，按普通进度通知渲染"
@@ -420,7 +420,7 @@ object LiveNotification {
      *
      * 只读、不贴、不起服务 ⇒ 可以在任意时刻（含切后台那一刻）调用。
      * 读不到就是读不到，也要把"读不到"写成一行 —— 不许回空串让 Dart 侧静默。
-     */
+     */
     fun postedDiag(ctx: Context): String {
         val sdk = Build.VERSION.SDK_INT
         return try {
@@ -457,7 +457,7 @@ object LiveNotification {
      * 全部包在 try/catch 里 —— 这一族的语义我只能在**这台机器的 android.jar / AAR** 上核对，
      * 真机（尤其非 Pixel ROM）表现是本期验收项。任何一步失败 ⇒ 退化成上面那条普通进度通知，
      * **绝不能让通知更新这件事把 App 弄崩**。
-     */
+     */
     private fun applyLiveUpdate(
         ctx: Context,
         b: NotificationCompat.Builder,
@@ -505,7 +505,7 @@ object LiveNotification {
                 // build168 ①（#97）：**done/ok 两个布尔之外还有第三态**。
                 // 旧写法是一句 `ok ? ic_live_done : ic_live_fail` 的二分 ⇒ 一轮结束在
                 // 反问上时 `ok=true`（它确实没坏），于是那一格挂上了勾 ——
-                // 机主看到的「反问轮被写成已完成」就是这一行画出来的。
+                // 用户看到的「反问轮被写成已完成」就是这一行画出来的。
                 // 判据读 Dart 传来的 `waitingUser`（写的 key 与读的 key 必须逐字相同，
                 // 由 `test/build170_island_waiting_user_test.dart` 把两端串起来），
                 // 并且**排在最前**：三态里只有它是两个布尔**编码不出来**的那一个
@@ -536,7 +536,7 @@ object LiveNotification {
      * 少于 2 段返回 null（宿主自己画连续条更好看）、上限 [LIVE_SEGMENT_CAP] 段、
      * 超出的合并进最后一段、合并段**全完成才算完成**。
      * 全程只用 `opt*`：JSON 形状被 Dart 侧改坏时这里是 null / 未完成，不抛异常。
-     */
+     */
     private fun stageSegments(
         stages: org.json.JSONArray?,
         accentArgb: Int,
@@ -577,7 +577,7 @@ object LiveNotification {
      * 两段同色相，用户才会把它们读成"同一条进度的前后截"，换成灰会读成
      * "另一条东西 / 这条被禁用了"。压淡而不是写死一个灰值，是因为通知底色
      * 深浅两套都有，写死必有一套看不见（与 `ic_live_done.xml` 不写 tint 同一条理由）。
-     */
+     */
     private fun accentArgb(ctx: Context): Int = try {
         val tv = android.util.TypedValue()
         val hit = ctx.theme.resolveAttribute(android.R.attr.colorAccent, tv, true)
@@ -609,7 +609,7 @@ object LiveNotification {
      *
      * 存在的意义是「宁可少承诺一点后台存活，也不要什么都不显示」——
      * 用户在 Android 12+ 的后台限制下点过下载又立刻切走时，仍能看见一条进度通知。
-     */
+     */
     fun notifyOngoingDirect(ctx: Context, snapshot: JSONObject) {
         safeNotify(ctx, ID_ONGOING_FALLBACK, renderOngoing(ctx, snapshot))
     }

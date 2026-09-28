@@ -334,8 +334,8 @@ String describeDataPackReject(DataPackReject reject,
         ? '数据包缺少 dataVersion 字段，无法判断新旧'
         : 'Missing dataVersion, cannot tell freshness',
     DataPackReject.notNewer => isZh
-        ? '已是最新（远程 dataVersion 不高于本地）'
-        : 'Up to date (remote dataVersion is not newer)',
+        ? '远程不比内置新，仍用内置'
+        : 'Remote is not newer than built-in; kept built-in',
     DataPackReject.minAppVersionTooHigh => isZh
         ? '该数据包要求的 App 版本更高'
         : 'Package requires a newer app version',

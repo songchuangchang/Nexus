@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// build168：**宽屏（平板）档的唯一所有者**。
 ///
 /// ## 为什么要有这个文件
-/// 机主从手机换到平板，报的第一眼症状是「输入框上面那一排按钮不适应」。但真正的根因
+/// 用户从手机换到平板，报的第一眼症状是「输入框上面那一排按钮不适应」。但真正的根因
 /// 比那一排大得多：**这个 App 从来没有宽屏档**。全仓在改动前
 ///  - 没有任何 `LayoutBuilder` 之外的宽度判据（`grep "sizeClass|isTablet|width > 6" lib/` ⇒ 0 命中），
 ///  - `lib/screens/*.dart` 里 `ConstrainedBox(maxWidth:)` ⇒ 0 命中，
@@ -64,7 +64,7 @@ abstract final class AppContent {
   ///  · 用户气泡再乘 0.82（`message_bubble_v2.dart` 那条系数）⇒ 约 31 个汉字。
   /// 40 字上下是中文排版的通行可读带（拉丁侧口径是 60–75 字符，换算过来同一条），
   /// 而改动前平板上是 **49–57 个汉字**一行 —— 行尾回到行主要靠眼球长距离搜寻，
-  /// 机主在平板上报的正是这个。
+  /// 用户在平板上报的正是这个。
   static const double maxForMedium = 640;
 
   /// expanded 档列宽上限：720dp（一行约 43 汉字，仍在带内）。

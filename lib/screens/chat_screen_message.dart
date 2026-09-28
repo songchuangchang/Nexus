@@ -97,7 +97,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
     // build165 ②：这一次发送如果是"因离开 App 被收起之后的整轮重发"，要把自动续写
     // 额度的**归属**搬进这个新轮号（判据与记账都在 `drop_continue.dart`）。
     // 不搬的代价很具体：重发那一轮自己在后台又被收起时 `usedIn(新轮号)` 读回 0
-    // ⇒ 又攒一笔 ⇒ 机主批的"最坏多付一轮"变成"每次进出 App 各多付一轮"
+    // ⇒ 又攒一笔 ⇒ 用户批的"最坏多付一轮"变成"每次进出 App 各多付一轮"
     // （他原话「回去之后他又重新开始搞」就是这个形状）。
     // 放在这里而不是 ReAct 循环入口：`_reactRound` 就在上一行赋值，中间零 await，
     // 而三条发送路径（ReAct / 编排 / 直聊）都要认这一次交接。
@@ -1264,7 +1264,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
   ///    不新造第二条关连接的路；
   ///  · 只记轮号（`_leftAppAbortRound`），不记 bool：新一轮一开始旧的这一次就自动作废。
   ///
-  /// build167（机主 26 日 18:4x「第一个问题我开了后台，退出来又给我暂停」）：这一整段
+  /// build167（用户 26 日 18:4x「第一个问题我开了后台，退出来又给我暂停」）：这一整段
   /// 现在挂在设置里那道「愿意后台化」总闸上 —— **本方法只负责把那个持久化位读出来
   /// 交给判据**，收不收流由 `shouldAbortStreamOnLeaveApp` 一处决定；这里再写一份
   /// `if (backgroundRunAllowed)` 就是第二个真源（教训 #62），而且会把"开着总闸时
@@ -2155,7 +2155,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
 
   Future<void> _rollbackMessage(ChatMessage userMsg) async {
     // build164（#84）：撤回留痕。**只加日志，撤回语义一个字没动**
-    // （"删除"还是"标记"是待决项 #74，机主另有决定；这里不替它选边）。
+    // （"删除"还是"标记"是待决项 #74，用户另有决定；这里不替它选边）。
     final verboseOn = _logger.verboseEnabled;
     if (_isStreaming) {
       // 这一条以前是纯静默：用户按了撤回、什么都没发生、日志里也一个字都没有。
@@ -2694,7 +2694,7 @@ String describeApiProbeFailure(Object e, {required bool isZh}) {
 // ═══════════════ build164（#84）：撤回/删除要留痕（只加日志，不动撤回语义） ═══════════════
 //
 // 真机 1.7.106+163 的两份新导出里，`rollback` / 撤回 / 删除 **全 0 命中**
-// （`docs/BUGSCAN_build164_20260925.md` ⑥）。机主问的是「撤回了，你还能看到吗？」——
+// （`docs/BUGSCAN_build164_20260925.md` ⑥）。用户问的是「撤回了，你还能看到吗？」——
 // 而现在连"撤了没有、撤了哪几条、各多少字"都看不到。
 // 撤回走 `_stopAndRollback` → `_rollbackMessage`，把本轮提问 + 回答**一起从库里删**，
 // 比一次普通发送还安静：发送有 `POST …`、有 `[Timing]`、有落库，撤什么也没有。
@@ -2766,7 +2766,7 @@ String deletedContentRecoverNote({
 
 /// 撤回 / 单条删除那一行的日志正文（**纯函数**，可单测）。
 ///
-/// 一行要能回答机主那两句「撤回了，你还能看到吗？」：
+/// 一行要能回答用户那两句「撤回了，你还能看到吗？」：
 /// 撤了什么（角色 + id + 字数）、有没有连提问一起撤、还能不能追回。
 ///
 /// [skippedBecause] 非空 = 用户按了但**一条都没删**（例如流没在 3 秒内停下、

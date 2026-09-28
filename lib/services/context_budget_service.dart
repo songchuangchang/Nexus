@@ -14,7 +14,11 @@ import 'logger_service.dart';
 /// 上游这一轮到底进没进思考档 —— 宁可少留，也不要凭猜把历史挤空。
 /// 留少了的后果是可观测的（超窗会被上游拒、轮次画像里有数），留多了的后果是
 /// 静默少带历史 —— 后者更难查，所以不取大值。
-const int kUpstreamDefaultOutputReserve = 8192;
+///
+/// build171：**这里不再自己写字面量 8192**，改引用 `api_service.kAnthropicUnsetOutputCeiling`。
+/// 同一条"未配置时按上游 8K 档"的规则此前住在两个文件里各写一遍 8192（本仓已经为
+/// 这种形状付过四次账）—— 现在定义只有一处，值改一次两边同时动。
+const int kUpstreamDefaultOutputReserve = kAnthropicUnsetOutputCeiling;
 
 /// 本轮该为"回答"预留多少 token。**发不发上限的判据只在 `requestMaxTokens` 那一处**，
 /// 这里复用它的返回值：我们真发了 ⇒ 预留就等于发出去的那个数；没发 ⇒ 按上游默认档留。

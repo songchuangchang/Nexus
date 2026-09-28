@@ -93,7 +93,7 @@ void main() {
       // `WidgetsBinding.instance` 已经就绪、且第一帧已经开始排。
       // 这台平板上外部帧尺子三条路全实测走不通（见 lib/utils/frame_probe.dart 文件头），
       // 进程内这一个读数是"这一帧多久"唯一的来源，走自己的日志通道 ⇒
-      // 遍历机械 `adb logcat` 直接能收，不需要机主动手。
+      // 遍历机械 `adb logcat` 直接能收，不需要用户动手。
       FrameProbe.instance.start();
     },
     (Object error, StackTrace stack) {
@@ -180,7 +180,7 @@ class _AIChatAppState extends State<AIChatApp> with WidgetsBindingObserver {
   /// 走完 build111 B-003 那套 `inAppActivityTransition` 深度计数，再补一次就是双重计数
   /// （要么误弹解锁、要么该锁时不锁 —— 正是 B-003 修过的族问题）。
   ///
-  /// build167（机主 26 日 16:03 那条建议的原话：「设置第一个是**是否愿意后台化**，
+  /// build167（用户 26 日 16:03 那条建议的原话：「设置第一个是**是否愿意后台化**，
   /// 若允许之后才能开启灵动岛和通知，**不是一开始就要询问是否允许**」）：
   /// 这一路多了一道总闸。判据只有一份（`mayUseLiveNotifications`，住在
   /// `lib/utils/background_run_switch.dart`），它同时决定下面这三件事 ——
@@ -325,7 +325,7 @@ class _AIChatAppState extends State<AIChatApp> with WidgetsBindingObserver {
     // 分辨只需"后台期间 chunk 增量"这一个数，别再靠语感猜（输入框那条猜了七轮）。
     // 只认 paused：hidden/inactive 在小窗/分屏/系统面板都会来，会把探针基线洗脏。
     if (state == AppLifecycleState.paused) StreamProbe.notePaused();
-    // build165 ①（机主 08:04 那份导出：带后台的 7 轮里 5 轮只收到 0~1 个 chunk，
+    // build165 ①（用户 08:04 那份导出：带后台的 7 轮里 5 轮只收到 0~1 个 chunk，
     // 8 次报错全落在 `resumed` 之前 0.10~0.19 秒）：**在被冻之前自己收线**。
     // 机制假设已收窄到"进程冻结 ⇒ 没人读 socket ⇒ 缓冲填满 ⇒ 上游关线"，而厂商侧
     // 没有任何可申请免冻结的 API（AOSP 的 Doze/资源表/freezer 三条都已用官方原文排除）
@@ -346,7 +346,7 @@ class _AIChatAppState extends State<AIChatApp> with WidgetsBindingObserver {
       // `MemoryLimiter`）/ 上游或网络关线），三者修法互斥，光靠 chunk 数分不开。
       unawaited(LiveTaskCenter.instance.logResumeForensics());
       // build162：回前台这一下也是「掉线续写」唯一允许的起飞时刻。
-      // 真机结论（机主 16:45 那份，1.7.104+161）：人在后台时新起的流必然在
+      // 真机结论（用户 16:45 那份，1.7.104+161）：人在后台时新起的流必然在
       // 几秒内被对端关闭 ⇒ 161 那种"掉线当时立刻续"在后台里注定失败。
       // 通知点只这一处（本方法是全仓打 `Lifecycle:` 的那个 observer，
       // 页面侧不再各自 addObserver）。

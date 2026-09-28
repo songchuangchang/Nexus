@@ -7,7 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../services/logger_service.dart';
 import '../services/workspace_service.dart';
 // build167：这里**不再 import** `app_container_transform.dart` ——
-// 本页不参与容器转场（165 接过一版，机主 19:02 报闪屏，见文件头）。
+// 本页不参与容器转场（165 接过一版，用户 19:02 报闪屏，见文件头）。
 import '../utils/app_snackbar.dart';
 
 /// build162：模型产出的 HTML 在 App 内预览（本仓第一个 WebView）。
@@ -37,7 +37,7 @@ import '../utils/app_snackbar.dart';
 /// 刻意不做的事：本页自己不动画（进度/错误都只是**静态文本条**，不加动画、
 /// 不加进度条组件），**也不接受外面套进来的容器转场**。
 /// 后者在 build165（#89）试过一版：产物卡片入口把整块 body 交给 `AppContainerHero`
-/// 当"落位端"。机主 26 日 19:02 报「会闪屏，不到一秒就好」并附截图 —— 那个 shuttle
+/// 当"落位端"。用户 26 日 19:02 报「会闪屏，不到一秒就好」并附截图 —— 那个 shuttle
 /// 的形状是"正文留在原位、容器从它上面盖过去"，而本页主体是**平台视图 WebView**、
 /// 进页第一帧就把内容画出来了 ⇒ 那 450ms 里是一块**近黑的不透明容器**在长大，
 /// 盖在已经看得见的表格上面。build167 撤掉这条接线（取证见
@@ -235,7 +235,7 @@ class _HtmlPreviewScreenState extends State<HtmlPreviewScreen> {
       // 是用户唯一看得见的信息。没有可说的（加载完、零失败、没截断）时
       // `_issueLine` 返回 null ⇒ 仍然只有一块 WebView，形状与改前逐像素一致。
       // build167：这里**不再有任何 hero 包法**（165 那版会把近黑容器盖在已画好的
-      // 内容上 450ms，机主报"闪屏"；见文件头与 BUGSCAN ④）。
+      // 内容上 450ms，用户报"闪屏"；见文件头与 BUGSCAN ④）。
       body: _pageBody(context, cs, issue, isZh),
     );
   }

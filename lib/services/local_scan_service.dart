@@ -20,6 +20,7 @@ import 'dart:convert';
 import 'custom_scan_rules.dart';
 import 'github_content_fetcher.dart';
 import 'logger_service.dart';
+import '../utils/regex_safety.dart';
 import 'security_scan_service.dart'
     show SecurityFinding, SecurityScanResult, SecuritySeverity;
 
@@ -304,6 +305,19 @@ class LocalScanService {
       for (final rule in rules) {
         if (!rule.enabled || !rule.appliesTo(target)) continue;
         if (rule.pattern.isEmpty) continue;
+        // build171（S5）：编译前必须先过回溯闸。语法合法 ≠ 能跑 ——
+        // `(a+)+$` 六个字符就能让 irregexp 在一段普通文本上指数爆炸，而这行
+        // `re.hasMatch(content)` 跑在 **UI isolate** 上 ⇒ 整个界面冻死，
+        // 用户只会看到「卡住」。旧实现唯一那道闸是**正则长度 >200 字符**，
+        // 长度拦不住回溯（爆炸样本全都远短于 200）。
+        // 闸对内置/远程/自定义**一视同仁**（内置里以后塞一条坏的同样要拦），
+        // 且**逐条跳过**：一条坏规则不许让整轮扫描中断或报错。
+        final risk = catastrophicBacktrackRisk(rule.pattern);
+        if (risk != null) {
+          _logger.warn('规则 ${rule.id} 正则会被引擎卡死（$risk），已跳过',
+              tag: 'LocalScan');
+          continue;
+        }
         try {
           final regex =
               RegExp(rule.pattern, dotAll: true, caseSensitive: false);
@@ -384,7 +398,8 @@ class LocalScanService {
   //   "rules": [ { "id":"LS-XXX-001", "title":"...", "description":"...",
   //                "severity":"high", "category":"...",
   //                "pattern":"...", "enabled":true, "targets":["skill"] } ],
-  //   "disableBuiltin": ["LS-EXE-001"]   // 可选：禁用指定内置规则
+  //   "disableBuiltin": ["UR-1"]  // 可选：只关得动非内置规则
+  //                               // （LS- 那 12 条一律禁不掉，见 _protectedRuleIds）
   // }
   // ==========================================================================
 
@@ -395,7 +410,7 @@ class LocalScanService {
     try {
       final custom = await CustomScanRules.load();
       if (custom.isNotEmpty) {
-        builtin = _mergeRules(builtin, custom);
+        builtin = mergeCustomRules(builtin, custom);
       }
     } catch (e) {
       _logger.warn('自定义规则合并失败: $e', tag: 'LocalScan');
@@ -406,7 +421,7 @@ class LocalScanService {
     // 缓存命中直接用
     if (_remoteRulesCache != null &&
         DateTime.now().difference(_remoteRulesFetchedAt) < _remoteCacheTtl) {
-      return _mergeRules(builtin, _remoteRulesCache!);
+      return _mergeRules(builtin, _remoteRulesCache!, keepBuiltinIds: true);
     }
 
     final trimmedUrl = rulesUrl.trim();
@@ -434,19 +449,10 @@ class LocalScanService {
         }
         return true;
       }).toList();
-      final disabledIds = (data['disableBuiltin'] as List<dynamic>? ?? [])
-          .map((e) => e.toString())
-          .take(5)
-          .toSet();
-      // build98（P2-7）：核心安全规则不允许被远程禁用，命中则记日志并忽略
-      disabledIds.removeWhere((id) {
-        if (_protectedRuleIds.contains(id)) {
-          _logger.warn('远程规则试图禁用受保护核心规则 $id，已忽略',
-              tag: 'LocalScan');
-          return true;
-        }
-        return false;
-      });
+      // build98（P2-7）/build171（S3）：disableBuiltin 的条数上限与受保护名单
+      // 都收进 mergeRemoteRules —— 内置那 12 条一律禁不掉，见 _protectedRuleIds。
+      final disableBuiltin = (data['disableBuiltin'] as List<dynamic>? ?? [])
+          .map((e) => e.toString());
       // build98（本地加强③）：黑名单随 rules.json 下发
       final bl = data['blacklist'];
       if (bl is Map) {
@@ -463,7 +469,8 @@ class LocalScanService {
       _remoteRulesFetchedAt = DateTime.now();
       _logger.info('远程规则拉取成功: ${rulesJson.length} 条 (v${data['version']})',
           tag: 'LocalScan');
-      return _mergeRules(builtin, rulesJson, disabledIds: disabledIds);
+      return mergeRemoteRules(builtin, rulesJson,
+          disableBuiltin: disableBuiltin);
     } catch (e) {
       _logger.warn('远程规则拉取异常: $e', tag: 'LocalScan');
     }
@@ -471,14 +478,64 @@ class LocalScanService {
     return builtin;
   }
 
-  // build98（P2-7）：核心安全规则不允许被远程 rules.json 禁用
-  static const Set<String> _protectedRuleIds = {
-    'LS-EXF-001',
-    'LS-EXF-002',
-    'LS-MCP-001',
-    'LS-MCP-002',
-    'LS-MCP-003',
-  };
+  // build98（P2-7）→ build171（S3）：核心安全规则不允许被远程 rules.json 禁用。
+  //
+  // 旧实现是一份**写死的 id 名单**（5 个：LS-EXF-001/002、LS-MCP-001/002/003）。
+  // 而远程 `disableBuiltin` 同样被限到 [maxRemoteDisableBuiltin] 条 ⇒
+  // 5 个名额刚好够把名单外的 LS-EXE-001/002/003 + LS-INJ-001/002 一次关掉：
+  // 「危险代码执行」与「提示注入」两族可以整族被远程清零，日志里连一条痕迹都没有。
+  //
+  // 现在保护集合**从 builtinRules 的 id 推导**，不再写死名单：内置规则一律不可
+  // 被远程禁用，以后新增内置规则自动进闸，不需要有人记得往名单里补一行
+  // （判据见 test/build171_remote_rule_gates_test.dart 的枚举那条）。
+  static Set<String> get _protectedRuleIds =>
+      builtinRules.map((r) => r.id).toSet();
+
+  /// 远程 `disableBuiltin` 一次最多能声明几条（build98 的上限，build171 保持不变）。
+  static const int maxRemoteDisableBuiltin = 5;
+
+  /// build171（S3）：远程 `disableBuiltin` 的闸——先按 build98 的口径取前
+  /// [maxRemoteDisableBuiltin] 条，再把命中受保护内置 id 的**记日志并忽略**。
+  /// 可见性沿用 build98：走 `_logger.warn`，**不许**降级成 `debugPrint`
+  /// （release 构建里 debugPrint 是 no-op，闸就变成没人看得见的静默丢弃）。
+  static Set<String> _applyDisableGate(Iterable<String> rawIds) {
+    final disabledIds = rawIds.take(maxRemoteDisableBuiltin).toSet();
+    // build98（P2-7）：核心安全规则不允许被远程禁用，命中则记日志并忽略
+    disabledIds.removeWhere((id) {
+      if (_protectedRuleIds.contains(id)) {
+        _logger.warn('远程规则试图禁用受保护核心规则 $id，已忽略',
+            tag: 'LocalScan');
+        return true;
+      }
+      return false;
+    });
+    return disabledIds;
+  }
+
+  /// build171（S3）：「禁用闸 + 合并」这两步的合成入口（远程与自定义同一条路）。
+  ///
+  /// 从 [_getEffectiveRules] 里**逐字拆出**，只为让这道闸能被单测钉住——原路径
+  /// 要先过一次真 HTTP（GitHubContentFetcher），单测里起不来。
+  /// build171 起这**就是**远程那一路的正门：远程新规则可追加、非内置 id 仍可被远程禁用，
+  /// 但同 id 顶掉内置那一条自 171 起不允许（`keepBuiltinIds: true`）——
+  /// 与 `disableBuiltin` 合起来才是"内置 12 条既删不掉也顶不掉"。
+  static List<LocalScanRule> mergeRemoteRules(
+    List<LocalScanRule> base,
+    List<LocalScanRule> remote, {
+    Iterable<String> disableBuiltin = const [],
+  }) =>
+      _mergeRules(base, remote,
+          disabledIds: _applyDisableGate(disableBuiltin), keepBuiltinIds: true);
+
+  /// 本地自定义规则那一路（用户在设置里自己写的，`CustomScanRules.load()` 的结果）。
+  /// 与远程分开是 171 的口径：**本地意志可以顶内置**（同 id 覆盖语义原样保留），
+  /// 下发的载荷不行。生产码在 `_getEffectiveRules` 里走的就是这个入口，
+  /// 所以判据钉的不是一个测试专用的复制品。
+  static List<LocalScanRule> mergeCustomRules(
+    List<LocalScanRule> base,
+    List<LocalScanRule> custom,
+  ) =>
+      _mergeRules(base, custom);
 
   static bool _isSafePublicUrl(String url) {
     try {
@@ -518,13 +575,26 @@ class LocalScanService {
     List<LocalScanRule> builtin,
     List<LocalScanRule> remote, {
     Set<String> disabledIds = const {},
+    bool keepBuiltinIds = false,
   }) {
     final remoteById = {for (final r in remote) r.id: r};
     final merged = <LocalScanRule>[];
     for (final b in builtin) {
       if (disabledIds.contains(b.id)) continue; // 远程声明禁用
       if (remoteById.containsKey(b.id)) {
-        merged.add(remoteById[b.id]!); // 远程覆盖
+        if (keepBuiltinIds) {
+          // build171（S3 补的那一刀，**只作用于远程那一路**）：保护口径从"禁不掉"
+          // 扩到"顶不掉"。只挡 `disableBuiltin` 不够——远程下发一条同 id、
+          // `enabled:false`（或一条永不匹配的正则）盖住内置那条，列表里 id 还在、
+          // UI 一切正常，实际那一族的检测已静默消失，与"整族关掉"同一个后果。
+          // 用户自己在设置里写的自定义规则照旧可以顶内置（那是本地意志，不是下发的载荷）；
+          // 两条路过去共用一个 merge 函数，正是这道洞的根因，所以拆成两个入口。
+          _logger.warn('远程规则与内置同 id（${b.id}），已保留内置那一条',
+              tag: 'LocalScan');
+          merged.add(b);
+        } else {
+          merged.add(remoteById[b.id]!); // 同 id 覆盖（本地自定义那一路，语义不变）
+        }
       } else {
         merged.add(b);
       }

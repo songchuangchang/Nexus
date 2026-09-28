@@ -81,7 +81,7 @@ String askUserWaitingBubbleNote({required bool isZh}) => isZh
 /// 提问轮在**没被定稿成答案**的那条出口上的气泡尾部行（同一条红线，两个形状）。
 ///
 /// 为什么不复用上面那句：调用点还知道"本轮一个字答案都没有"和"模型问完就没下一轮"
-/// 是同一件事，所以这里只保留一行，不写两遍（机主 26 日「废话太多了给我砍一刀」）。
+/// 是同一件事，所以这里只保留一行，不写两遍（用户 26 日「废话太多了给我砍一刀」）。
 String askUserUnansweredBubbleNote({required bool isZh}) => isZh
     ? '模型在这一轮问了你一句，循环到此结束——没有最终答案，也不是失败。'
     : 'The model asked you something in this round and the loop ended there — '

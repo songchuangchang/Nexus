@@ -60,7 +60,7 @@ const List<String> kReActTagNames = [
   // 否则归一化后的标记又变成纯文本（同型复发第 5 次）。语义＝显式失败：
   // 宿主回灌教学 toolresult，绝不假装成功。
   'unknown_tool_call',
-  // build164（#82）：阶段小结标签。机主拿别的 App 的截图当理想形态——多轮工具
+  // build164（#82）：阶段小结标签。用户拿别的 App 的截图当理想形态——多轮工具
   // 调用中间要有一句**给人看**的进展（「我再深入查一下三款产品的具体责任和44岁的费率。」），
   // 而不是全埋在折叠 thinking 里。漏登记的后果照旧是第 8 次同型复发（标签被当纯文本吞掉）。
   // 刻意**不**进 [kNonToolTagNames] ⇒ 自动属于 [kToolTagNames]：typed 内核会把它的
@@ -350,7 +350,7 @@ const int kInconclusiveHintStreak = 2;
 /// build164（#82）：5 → **8**。判据来自真机 1.7.106+163 那份日志
 /// （`23:17:02 G39 inconclusive round 1: streak=1 (lastAction=ws_list)` →
 /// `23:17:58 streak=2 → wrap-up constraint injected` → 到 5 那一支直接把整条正文
-/// 覆盖成模板报错），机主原话：**「五轮是不是有点太短了？」**。
+/// 覆盖成模板报错），用户原话：**「五轮是不是有点太短了？」**。
 /// 合法的多步任务（深度研究、多轮检索后对比、检索+落盘+核对）会连开 5~7 轮工具，
 /// 深研档 maxRounds 本就是 80 —— 5 轮就判死刑等于把有用的研究拦腰砍断。
 /// 抬到 8 的前提是 4 那一档先要一句**阶段小结**（[kInconclusiveProgressStreak]），
@@ -382,7 +382,7 @@ const int kInconclusiveProgressStreak = 4;
 ///
 /// build164（#82）刻意**不**把 `<progress>` 阶段小结算作"有结论"：它是进展播报、
 /// 不是答案。若认它清账，模型每轮写一句"还在查"就能把 streak 永远清零、
-/// 绕开整条收敛闸门（这正是机主要避免的"空转到 maxRounds"）。
+/// 绕开整条收敛闸门（这正是用户要避免的"空转到 maxRounds"）。
 bool isInconclusiveRound(
   List<Map<String, String>> pieces, {
   required bool answered,
@@ -418,7 +418,7 @@ String buildInconclusiveConstraintMessage(
 /// build164（#82）强制小结指令（连续 [kInconclusiveProgressStreak] 轮无结论时注入）。
 ///
 /// 与 [buildInconclusiveConstraintMessage] 的分工：后者要「现在收口」，本条要
-/// 「先说一句人话、然后可以继续查」。机主的原话就是这条的形态：
+/// 「先说一句人话、然后可以继续查」。用户的原话就是这条的形态：
 /// **「这是其他软件的思考过程的小结，这个大概就是我的理想，可以的话就直接做吧」**——
 /// 多轮工具中间要有一句给用户看的阶段进展，而不是等到放弃才看到一段模板报错。
 String buildInconclusiveProgressMessage(
@@ -452,7 +452,7 @@ String buildInconclusiveProgressMessage(
 /// 可信的答案文本**可用，硬凑一段比诚实报错更糟（用户无从分辨那是不是编的）。
 /// 真机场景正是「模型反复追问怎么传 model 参数」——可行动项要落到**具体设置页**。
 ///
-/// build164（#82）：删掉旧文案里「① 中转站返回空流 / 502」这类猜测。机主用的是
+/// build164（#82）：删掉旧文案里「① 中转站返回空流 / 502」这类猜测。用户用的是
 /// **官方端点**（api.deepseek.com），那句把责任指向中转站，直接把他带偏过一轮排查
 /// （原话：**「我用的是官方的，不是中转站的」**）。而且这些猜测**没有一份真机数据支撑**：
 /// 能走到这一支的前提是这几轮请求正常返回并执行了动作——空流/502 在传输层就抛错了。
@@ -510,7 +510,7 @@ String composeGiveUpContent(String existing, String notice) {
 // build164（#82）：阶段小结 <progress> —— 面向用户的一句话进展
 // ============================================================================
 //
-// 真机/截图事实（机主提供的另一款 App 截图，作为理想形态）：那条回答在**正文位置**
+// 真机/截图事实（用户提供的另一款 App 截图，作为理想形态）：那条回答在**正文位置**
 // 有一句给人看的话「我再深入查一下三款产品的具体责任和44岁的费率。」，下面才接着挂
 // 工具步骤行。本仓的现状是：多轮工具中间用户只能看到折叠的 thinking 与工具行，
 // 阶段进展要么没有、要么在 streak 攒满后直接变成一段模板报错。
@@ -546,7 +546,7 @@ ReasoningStep buildProgressNoteStep(String text,
   );
 }
 
-/// 阶段小结的日志行（机主点名要能在日志里数出第几条）：
+/// 阶段小结的日志行（用户点名要能在日志里数出第几条）：
 /// `[ReAct] 阶段小结 #N：<原文>`。抽成纯函数是为了让单测钉住形状——
 /// 日志形状散在调用点手写，下次改文案就没人知道（本仓 #62 的老账）。
 String formatProgressNoteLog(int seq, String text) =>
@@ -566,7 +566,7 @@ const String kTruncationNoticeMarker = 'maxTokens=';
 /// 「老是中断」的取证）：maxTokens 打满时模型给的是**半截话**，而旧链只在
 /// 「流式兜底①」那一支贴了一句硬编码中文「输出可能被截断，内容不完整」——
 /// 英文界面同样贴中文，且经插件 dispatch 正常定稿那一支**完全不贴**，
-/// 于是半截话冒充结论落库，用户以为这就是答案（机主读到的就是这种形状）。
+/// 于是半截话冒充结论落库，用户以为这就是答案（用户读到的就是这种形状）。
 String applyTruncationNotice(String content,
     {required int maxTokens, required bool isZh}) {
   final prev = content.trim();

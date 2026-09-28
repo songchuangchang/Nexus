@@ -4,7 +4,7 @@
 
 ### 跑在你自己设备上的 AI 对话客户端
 
-API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设置只存本机，不经过任何第三方服务器
+API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设置只存本机，出网只去你配置的端点和本仓库的公开文件
 
 <br />
 
@@ -75,8 +75,9 @@ API Key 自己填 · 请求直连你选的模型服务商 · 聊天记录与设�
 ### 🗂️ 数据与扩展
 
 - 跨会话记忆与项目分组；知识库（RAG）与提示词模板
-- 插件市场、MCP 连接器、Skills；服务商模板 / 内置提示词 / 连接器目录支持热更新
-  （带版本闸门与校验和，取不到就继续用 APK 内置的那份）
+- 插件市场、MCP 连接器、Skills；服务商模板 / 内置提示词 / 连接器目录可由远程数据包更新
+  （版本闸门 + 结构校验；校验和是可选字段，这几份文件暂未提供。目前只有连接器目录那份真在闸内可用，
+  另两份的远程版本仍低于内置基线，读到了也会被闸判旧而拒绝——这是已知项）
 - 文件管理、会话归档、备份到网盘（保留份数可关）
 - 图片文字识别（本机 OCR，不上传）
 
@@ -113,28 +114,39 @@ App 内「设置 → 关于」会检查更新，读的就是本仓库的 latest 
 ```bash
 flutter pub get
 flutter analyze
-flutter test -j 2
 flutter build apk --release --flavor direct --split-per-abi
 ```
 
 `--flavor direct` 是"从 GitHub Releases 自更新"这一档，另有 `store` 档面向应用商店渠道，
-两档目前同源。测试并发固定 `-j 2`——默认并发会抢 pub 锁，出来的是假失败。
+两档目前同源。本仓库是发布镜像，只放代码快照，**测试用例不在这里**（构建不依赖它们）。
+
+一处实话：`android/gradlew`、`gradlew.bat` 与 `android/gradle/wrapper/gradle-wrapper.jar`
+被 `android/.gitignore` 忽略，所以没有进这个镜像；直接调 Gradle 的构建路径要先在自己的
+Android 目录里生成 wrapper，走 `flutter build` 这一路则不必。
 
 release 包恒开 R8 混淆与资源压缩；签名读取 `android/key.properties`，
 该文件缺失时 Gradle 会明确告警并退回 debug 签名，这种包不能覆盖正式版，也不要分发。
 
 ## 🔒 隐私与数据
 
-- 聊天记录、设置、API Key 全部存在设备上：Key 走 Android Keystore，
-  不是明文放在数据库里
-- 除了你自己在设置里配的模型/搜索端点，App 不向任何服务器发起请求
-- 更新检查与数据包同步读取本仓库的公开文件，不携带任何设备标识
+- 聊天记录、设置、API Key 全部存在设备上：Key 优先写进 Android 系统保险库（Keystore）；
+  个别机型写不进去时会退回本地明文存储并如实标注——**宁可降级也不让你的 Key 凭空消失**
+- 出网只有两类去向：你自己在设置里配的模型/搜索端点，以及本仓库的公开文件
+  （更新检查、安全扫描规则与数据包；读这些文件时会经过镜像加速地址）
+- 更新检查与数据包同步不携带任何设备标识
 
 ## 🛡️ 权限
 
-- **通知 / 前台服务**：可选，请在通用设置修改
-- **生物识别**：可选，用于打开 App、查看已保存的 Key
-- **相机 / 相册 / 麦克风**：仅在主动附图、附文件或听写时使用
+清单以 `android/app/src/main/AndroidManifest.xml` 为准（现读 18 项），逐条对应它能做的事：
+
+- **通知（含 `POST_PROMOTED_NOTIFICATIONS`）/ 前台服务（`FOREGROUND_SERVICE`、`_DATA_SYNC`、`_SPECIAL_USE`）**：
+  可选，默认关；关着时一个权限都不问，打开后长任务在离开 App 时仍可见
+- **生物识别（`USE_BIOMETRIC` / `USE_FINGERPRINT`）**：可选，用于打开 App 与查看已保存的 Key
+- **相机与媒体（`CAMERA`、`READ_MEDIA_IMAGES/VIDEO/AUDIO`、`READ/WRITE_EXTERNAL_STORAGE`）**：
+  仅在你主动附图、附文件、导出或预览本地文件时使用
+- **位置（`ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`）**：只有你在对话里让助手用到定位时才会读
+- **安装应用（`REQUEST_INSTALL_PACKAGES`）**：只服务于 App 内那一跳自更新，不会后台静默安装
+- 本 App **没有**录音权限（`RECORD_AUDIO` 声明数为 0），也就没有听写/语音输入
 
 ## ⚠️ 免责声明
 

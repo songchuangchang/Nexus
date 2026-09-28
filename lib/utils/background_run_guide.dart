@@ -9,7 +9,7 @@
 ///    「页面上写着去 A 页、按钮把用户送到 B 页」（教训 #62 同族）。
 ///
 /// 为什么要做这一行（docs/BUGSCAN_build164_20260925.md ⑬ 的取证结论）：
-///  机主的 App 在 OPPO / ColorOS（Android 16、targetSdk 36）上「一进后台这轮回答就停摆」。
+///  用户的 App 在 OPPO / ColorOS（Android 16、targetSdk 36）上「一进后台这轮回答就停摆」。
 ///  AOSP 那三层已经用官方原文排除（Doze 要「未接电源 + 静止 + 灭屏」一段时间；带前台服务时
 ///  网络是 No restrictions；cached-apps freezer 只 stop cached 进程），端点变量也已排除
 ///  （官方端点与中转站同一种失败形状）⇒ 剩下的是**厂商后台管控**，

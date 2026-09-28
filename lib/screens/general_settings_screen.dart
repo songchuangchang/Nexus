@@ -21,7 +21,7 @@ import '../services/storage_service.dart';
 import '../ui/tokens.dart';
 import '../utils/app_snackbar.dart';
 import '../utils/background_run_guide.dart';
-// build167（机主 26 日 16:03 那条建议）：「愿意后台化」总闸 —— 持久化位与
+// build167（用户 26 日 16:03 那条建议）：「愿意后台化」总闸 —— 持久化位与
 // 「通知/灵动岛肯不肯用」的那一份判据都住在这里，页面上不许自己写第二串 `&&`。
 import '../utils/background_run_switch.dart';
 import '../utils/workspace_permission.dart';
@@ -62,7 +62,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
   /// 三条都对齐了既有事实，没有新造状态：
   ///  · 关掉时走 `setUserEnabled(false)` —— 撤通知栏/灵动岛的投影，
   ///    **不动任务真源、也不撤销用户早就给过的系统授权**（那个三方 App 撤不了）；
-  ///  · 打开时才 `requestPermission()`：机主要的是"不是一开始就要询问是否允许"，
+  ///  · 打开时才 `requestPermission()`：用户要的是"不是一开始就要询问是否允许"，
   ///    这一行是全仓**唯一**会在总闸之外主动弹系统权限框的地方（冷启动那一处
   ///    由 `main.dart` 的 `_initLiveTask` 读同一份判据，已经不会再无条件问）；
   ///  · 生效值只由 [mayUseLiveNotifications] 给，页面不自己写 `&&`。
@@ -93,7 +93,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
         child: ListView(
           padding: AppPad.page,
           children: [
-            // build167（机主 16:03 那条建议的形状）：**「后台运行」这一组，第一项就是总闸**。
+            // build167（用户 16:03 那条建议的形状）：**「后台运行」这一组，第一项就是总闸**。
             // 三行是同一件事的三层，必须在一组里、一个口径：
             //  ① 是否愿意后台化（总闸，默认关 = 与 166 逐字节同行为）；
             //  ② 灵动岛/后台进度通知（**总闸关着时点不动**，也不向系统要权限）；
@@ -122,7 +122,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
                   //  不投影"那一句只说一遍，在灵动岛那一行下面的 `bgRunIslandNeedsMaster`）。
                   // 禁止的形状是"后台不会中断/已开启后台运行"——那是**系统**的决定了什么,
                   // 而 165 的结论是：能申请的豁免集合是**空集**，我们连它开没开都读不到。
-                  // 所以两句都带"系统仍可能中止"（机主 26 日嫌啰嗦之后只留这一处 hedge，
+                  // 所以两句都带"系统仍可能中止"（用户 26 日嫌啰嗦之后只留这一处 hedge，
                   // 删掉的是重复的那半句"本应用不保证"，不是 hedge 本身）。
                   subtitle: Text(
                     backgroundRunAllowed
@@ -141,7 +141,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
             ),
             AppSectionCard(
               // build163：原来这里写着 `title: '通用设置'` —— 与上面 AppBar 的标题
-              // 一模一样，同一页里同一句词出现两次（机主圈出来的"很怪"有一半是这个）。
+              // 一模一样，同一页里同一句词出现两次（用户圈出来的"很怪"有一半是这个）。
               // 卡片现在只留一行说明，标题交给 AppBar 一处。
               children: [
                 Padding(
@@ -353,7 +353,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
 /// 单独做成 StatefulWidget 而不是往 StatelessWidget 里塞：这一条要显示
 /// 「通知权限到底给没给」，而那是异步从原生问回来的，必须有本地状态。
 ///
-/// build167（机主 26 日 16:03：「若允许之后才能开启灵动岛和通知」）：这一行挂在
+/// build167（用户 26 日 16:03：「若允许之后才能开启灵动岛和通知」）：这一行挂在
 /// 那道「愿意后台化」总闸**后面** —— 总闸关着时它点不动、也不向系统要权限，
 /// 显示的也是"生效值"而不是自己那把 pref（否则上面关着、这里画一个开着的开关，
 /// 用户读到的是一句假话）。判据只有一份：[mayUseLiveNotifications]。
@@ -389,7 +389,7 @@ class _LiveNotificationsCardState extends State<LiveNotificationsCard> {
 
   Future<void> _toggle(bool v) async {
     // 总闸关着 ⇒ 这一行根本点不动（`onChanged` 给的 null），这里再挡一次是护栏：
-    // 走到这里就会写 prefs、就会把投影打开 —— 那是机主明确说"不是一开始就要询问"的那件事。
+    // 走到这里就会写 prefs、就会把投影打开 —— 那是用户明确说"不是一开始就要询问"的那件事。
     if (!widget.masterAllowed) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kLiveNotificationsEnabled, v);

@@ -28,7 +28,7 @@ import '../utils/attachment_tap.dart';
 // progressNote（#82 新增的 step kind）的可见行判据也住在同一个文件里，见它的文件头。
 import '../utils/agent_artifact_cards.dart';
 // build167：这里**不再 import** `app_container_transform.dart` ——
-// 165（#89）把「产物卡片 → HTML 预览页」接过容器转场，机主 26 日 19:02 报
+// 165（#89）把「产物卡片 → HTML 预览页」接过容器转场，用户 26 日 19:02 报
 // 「会闪屏，不到一秒就好」：那块 shuttle 是"正文留在原位、容器从上面盖过去"，
 // 而本页第一帧就把内容画好了 ⇒ 450ms 里是一块近黑容器盖在真内容上。
 // 撤接线不撤组件（组件仍被 build165 的 ⑤ 组直接测着），原因与前置条件写在
@@ -750,7 +750,7 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
   /// 任何入口。判据全部住在 `utils/agent_artifact_cards.dart`（画不画 / 上面有哪些字 /
   /// 点开读什么都由它一处决定），这里只排版。
   Widget _buildAgentArtifactCards(ThemeData theme, bool zh) {
-    // 机主 02:40 定的三层："卡片全部都画，能开的开、不能开的什么都不承诺"。
+    // 用户 02:40 定的三层："卡片全部都画，能开的开、不能开的什么都不承诺"。
     // 两条收集器共用判据层那一个私有收集器（只差类型闸的方向），这里只是并排画出来。
     final cards = [
       ...collectArtifactCards(widget.message.reasoningSteps),
@@ -793,7 +793,7 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // 文件名**不截断到看不清**（机主那张参照图点名的一条）：
+                            // 文件名**不截断到看不清**（用户那张参照图点名的一条）：
                             // 给整段剩余宽度、允许折两行，超过两行才省略。
                             Text(
                               c.fileName,
@@ -822,7 +822,7 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
                         ),
                       ),
                       // 参照图里那枚青色「预览 ›」。**只在 App 内真能渲染时画**：
-                      // 机主 02:40 的原话是"不支持的什么都不说，就直接弹一个分享/默认应用打开"
+                      // 用户 02:40 的原话是"不支持的什么都不说，就直接弹一个分享/默认应用打开"
                       // ⇒ 渲染不了的类型连"预览"两个字都不出现，但卡片照画、点了照有反应
                       //   （交给系统那条既有通道）。承诺一件做不到的事，比不承诺更糟。
                       if (artifactShowsPreviewLabel(c)) ...[
@@ -889,7 +889,7 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
     }
     log.info('HTML 产物卡点开：${card.rel}（${card.sizeLabel(zh: zh)}）',
         tag: 'HtmlPreview');
-    // build167（机主 26 日 19:02「会闪屏，不到一秒就好」）：**这条入口退回默认路由**。
+    // build167（用户 26 日 19:02「会闪屏，不到一秒就好」）：**这条入口退回默认路由**。
     // 165（#89）把它接过容器级连续过渡，而那个 shuttle 的形状是
     // 「正文留在原位、容器从它上面盖过去」（见 `app_container_transform.dart:78`）——
     // 目标页主体是**平台视图 WebView**、且进页第一帧就已经把内容画出来了，
@@ -909,7 +909,7 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
     ));
   }
 
-  /// 第 3 层（机主 2026-09-26 02:40：「不支持的**什么都不说**，就直接弹一个分享
+  /// 第 3 层（用户 2026-09-26 02:40：「不支持的**什么都不说**，就直接弹一个分享
   /// 链接什么之类的，让他打开默认的」）。
   ///
   /// App 内没有能渲染这个类型的页 ⇒ 卡片上连「预览」两个字都不画（不承诺做不到的事），
@@ -2054,9 +2054,9 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
     );
   }
 
-  /// build163：附件卡片**整张可点**（机主 20:49 的截图：聊天里点那张 `.html` 卡片，
+  /// build163：附件卡片**整张可点**（用户 20:49 的截图：聊天里点那张 `.html` 卡片，
   /// 应用内打不开 ⇒ 能力等于不存在。build162 只在文件管理页那条既有分派上加了分支，
-  /// 而机主最常用的路径是聊天里这张卡片）。判据不住在这里，在 `attachment_tap.dart`。
+  /// 而用户最常用的路径是聊天里这张卡片）。判据不住在这里，在 `attachment_tap.dart`。
   ///
   /// 三条来源逐条核对过（结论也写进了判据文件的注释里）：
   ///  · **用户选/分享进来的 `.html`**：内容在 `extractedText` 里 ⇒ 走 build162 的
@@ -2800,7 +2800,7 @@ class _ExpandableResultV2State extends State<_ExpandableResultV2> {
   }
 }
 
-/// build164（#83）：产物卡片左边那块**方形缩略块**（机主参照图里的那一格）。
+/// build164（#83）：产物卡片左边那块**方形缩略块**（用户参照图里的那一格）。
 ///
 /// 为什么是一块类型徽标而不是真截图：真截图要么开 WebView 截、要么读文件再渲染 ——
 /// 两者都是"渲染时读盘"，正是这次明令禁止的那件事（点开才读）。一期只画 html，

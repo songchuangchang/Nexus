@@ -61,7 +61,7 @@ class _DownloadProgressDialogState extends State<DownloadProgressDialog> {
   ///
   /// 这里原来是一个整框的转圈（M19 只补了个「关闭」按钮，没解决「这一支根本不该转圈」）：
   /// 代码此刻**已经知道**没有任何任务在跑，画一个"在路上"的圈 = 画一幅与事实相反的图，
-  /// 机主因此截图问「这个 UI 用来干嘛的」。改成：事实一句 + 原因一句 + 两个真动作。
+  /// 用户因此截图问「这个 UI 用来干嘛的」。改成：事实一句 + 原因一句 + 两个真动作。
   ///
   /// 「重试」不另写一份下载启动逻辑：走 `app_source_selector.dart:159` 点某个源时
   /// 调用的同一个入口 `AppDownloadService.startDownload`，参数（appName/source）
@@ -131,7 +131,7 @@ class _DownloadProgressDialogState extends State<DownloadProgressDialog> {
     );
   }
 
-  /// 一行可 grep 的取证日志（tag `Download`）。下次机主再截图问「这是什么」，
+  /// 一行可 grep 的取证日志（tag `Download`）。下次用户再截图问「这是什么」，
   /// 日志里要能直接答出：那一刻服务层到底有没有任务、上一个任务停在哪、
   /// 这个框是为哪个来源开的。
   void _logIdleOnce(AppDownloadService svc) {

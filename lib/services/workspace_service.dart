@@ -535,9 +535,9 @@ class WorkspaceService {
 
   /// 末段通配匹配（纯函数）：`*.dart` / `test_*.txt` / `src/*.dart`。
   static bool globMatch(String rel, String glob) {
-    final g = glob.trim().toLowerCase().replaceAll('\\', '/');
+    final g = glob.trim().toLowerCase().replaceAll('<内网路径>', '/');
     if (g.isEmpty) return true;
-    final r = rel.toLowerCase().replaceAll('\\', '/');
+    final r = rel.toLowerCase().replaceAll('<内网路径>', '/');
     if (!g.contains('*')) return r == g || r.endsWith('/$g');
     final parts = g.split('/');
     final segs = r.split('/');
@@ -626,7 +626,7 @@ class WorkspaceService {
     var name = (filename?.trim().isNotEmpty ?? false)
         ? filename!.trim()
         : uri.pathSegments.where((s) => s.isNotEmpty).lastOrNull ?? 'download.txt';
-    name = name.replaceAll('\\', '/').split('/').last;
+    name = name.replaceAll('<内网路径>', '/').split('/').last;
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
     if (!textExtensions.contains(ext)) {
       return (null, null, '仅支持文本类扩展名（txt/md/json/csv/log/xml/html/代码文本…），拒绝「.$ext」');

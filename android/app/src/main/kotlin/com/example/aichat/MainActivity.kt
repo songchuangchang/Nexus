@@ -22,7 +22,7 @@ import java.io.File
  * 关键设计：**文件必须复制到应用私有目录**，不能把 content:// 交给 Dart。
  * 分享 URI 的读权限随 Intent 生命周期失效，而用户完全可能「先插入输入框、过几分钟
  * 才点发送」——那时再读 URI 会拿到空文件或抛 SecurityException。
- */
+ */
 class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val CHANNEL = "nexus/share_intent"
@@ -40,7 +40,7 @@ class MainActivity : FlutterFragmentActivity() {
      * build142（灵动岛）：后台进度通知的通道。
      * 用 provider 闭包而不是直接捕获 `this`，是因为回调可能落在 Activity 销毁之后
      * （点通知 → 系统重建 Activity → 旧的还在收尾），那时必须拿到**当前**实例。
-     */
+     */
     private val liveTask = LiveTaskPlugin(
         activityProvider = { this },
         appContext = { applicationContext },
@@ -52,7 +52,7 @@ class MainActivity : FlutterFragmentActivity() {
         // build160（真机 11:04 那份导出定到的根因候选）：整台机器上键盘从来没被我们看见 ——
         // 输入框伸缩的九轮里，`viewInsets.bottom` 恒 0、窗口高度恒 932、`keyboardUp=false`
         // 而 `focused=true`；框其实照常长缩（31 字 119 / 97 字 176 / 10 换行 290），
-        // 只是**涨到键盘后面去了**，所以机主读到的永远是"不涨不缩"。
+        // 只是**涨到键盘后面去了**，所以用户读到的永远是"不涨不缩"。
         // 这台是 Android 16（targetSdk 36）：`windowOptOutEdgeToEdgeEnforcement` 那道
         // 退路在新版本已经被拿掉，只能显式告诉窗口"装饰不归你管，insets 往下派"。
         // 为什么不是 `WindowCompat.setDecorFitsSystemWindows`：那是 androidx.core 的扩展，
@@ -206,7 +206,7 @@ class MainActivity : FlutterFragmentActivity() {
      * 用户看到的两个附件会变成同一个内容。
      *
      * @return (绝对路径, 展示用文件名, 字节数)；失败返回 null
-     */
+     */
     private fun copyToPrivateStorage(uri: Uri): Triple<String, String, Long>? {
         return try {
             val displayName = sanitize(

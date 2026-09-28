@@ -19,7 +19,7 @@ import 'stream_probe.dart';
 import 'text_recognition_service.dart';
 import 'protocol/anthropic_protocol.dart';
 
-/// build167（机主 26 日 19:2x 那句「可以」= 批准把 `max_tokens` 的默认交回上游）：
+/// build167（用户 26 日 19:2x 那句「可以」= 批准把 `max_tokens` 的默认交回上游）：
 /// **这一次请求该不该发 `max_tokens`、发多少**。返回 `null` = **不发**。
 ///
 /// 为什么原来一直在发 4096：那是 build93(S4) 那轮的保守值（"ReAct 多标签协议输出较长，
@@ -37,6 +37,34 @@ import 'protocol/anthropic_protocol.dart';
 /// 纯函数：调用点不许自己再写一份 `if`（判据只住这一处）。
 int? requestMaxTokens({required int configured}) =>
     configured > kLegacyUnsetMaxTokens ? configured : null;
+
+/// 未配置时 Anthropic 请求体里发出去的那个数。
+///
+/// **与 `context_budget_service.kUpstreamDefaultOutputReserve` 同源**（那边现在就是
+/// 引用这个常数定义的，仓里只此一处写死 8192）：口径来自 168 —— DeepSeek 官方文档
+/// （`api-docs.deepseek.com`，2026-09-26 取）写"不传时默认非思考档 8K"，168 据此把
+/// 未配置支的输出预留从 2048 抬到 8192；本条用的是同一个档，**不新造第三个数**。
+const int kAnthropicUnsetOutputCeiling = 8192;
+
+/// build171（外部审查终版全清单第 1 项）：**Anthropic 那一支这次该发多大的 `max_tokens`**。
+///
+/// 167 那条"不传 `max_tokens`、把默认交回上游"只落在 OpenAI 兼容那一支 ——
+/// Anthropic 的 `max_tokens` 是**必填**字段（缺了官方直接 400，见
+/// `protocol/anthropic_protocol.dart` 函数头注③），167 当时**明确没碰它**
+/// （`docs/RELEASENOTES_v1.7.110_build167.md` 与本文件 `requestMaxTokens` 下方注释同口供）。
+/// 于是 Claude 系一直在发 [kLegacyUnsetMaxTokens]：那是"没人选过的历史默认"，
+/// 回答写到 2048 就断 ⇒ **默认即触发的静默截断**（用户看到"话说一半"，没有报错，
+/// 日志里也什么都没有 —— 比 400 更难查）。
+///
+/// 判据形状与 [requestMaxTokens] 逐字对称，只有一处不同：**必填 ⇒ 没有"不发"这一档**，
+/// 未配置时改发一个明确选了的大值。
+///  · 他**明确**配过比历史默认大的数 ⇒ 原样透传，一个数字都不替他改（更不许 clamp 成 8192，
+///    那是把他的选择压成我们的默认 = 假事实）；
+///  · 历史默认及以下 ⇒ 发 [kAnthropicUnsetOutputCeiling]。
+///
+/// 纯函数：调用点不许自己再写一份 `if`（"是否等于未配置默认"这个判断只住这一处）。
+int anthropicMaxTokens({required int configured}) =>
+    configured > kLegacyUnsetMaxTokens ? configured : kAnthropicUnsetOutputCeiling;
 
 /// v1.7.37：深度研究工作流提示词（原 DeepResearchPlugin.promptProtocol，
 /// 深度研究并入思考强度 1.0 档后挪为常量，ReAct 循环在拉满档时直接拼入系统提示）。
@@ -88,7 +116,7 @@ String buildReactSystemPromptFromPlugins(
     sb.writeln('   内容可以写：你接下来打算查什么、为什么、现在掌握了哪些关键点、缺什么信息、下一步打算怎么继续。');
     sb.writeln(
         '   思考是给用户看的，请用和用户提问相同的语言（用户用中文就用中文、用英文就用英文），简洁自然，不要 JSON、不要占位。');
-    // build164（#82）：阶段小结通道。判据是机主那张"别的 App"的截图——那条回答在
+    // build164（#82）：阶段小结通道。判据是用户那张"别的 App"的截图——那条回答在
     // 正文位置上有一句给人看的话（「我再深入查一下三款产品的具体责任和44岁的费率。」），
     // 下面才挂工具步骤行；他说「这是其他软件的思考过程的小结，这个大概就是我的理想」。
     // 本仓多轮工具中间只有折叠 thinking ⇒ 长任务看起来像"卡住了"（真机 1.7.106+163
@@ -578,6 +606,16 @@ class ApiService extends ChangeNotifier {
           : '${textParts.join('\n\n')}\n\n${msg.content}';
       final imagePayloads =
           config.supportVision ? imgAtts : <MessageAttachment>[];
+      if (imgAtts.isNotEmpty) {
+        // build171（同源纪律，28 日那次"图片识别不了"的直接产物）：那次现场分不出根因——
+        // 是走的编排路径（根本不发多模态）、还是这条配置没勾"支持视觉"（这里静默丢图），
+        // 日志里两样都看不到，只能靠猜。现在把闸的两侧都打出来：
+        // 判据、有几张、真发了几张。仍然只在有图时打，不给纯文本轮添噪声。
+        LoggerService.instance.info(
+            'vision gate: supportVision=${config.supportVision} '
+            'images=${imgAtts.length} sent=${imagePayloads.length}',
+            tag: 'Api');
+      }
       if (imagePayloads.isNotEmpty) {
         final contentArr = <Map<String, dynamic>>[];
         if (baseText.isNotEmpty) {
@@ -699,7 +737,7 @@ class ApiService extends ChangeNotifier {
     _activeScopes.add(stopScope);
     // build158：后台探针需要知道"出去那一刻有没有流在跑"。
     // 没有这个读数，`离开 981s、chunk 没涨` 会被判成"整条流在后台停摆"，
-    // 而真相可能只是**那时根本没有流**（机主 07:40/07:57 两条都是这么来的假阳性）。
+    // 而真相可能只是**那时根本没有流**（用户 07:40/07:57 两条都是这么来的假阳性）。
     StreamProbe.noteStreamStart();
 
     try {
@@ -727,12 +765,18 @@ class ApiService extends ChangeNotifier {
       // build167：`max_tokens` 该不该发在这里定一次，构造点与日志读**同一个数**
       // （日志打一个请求体里没有的数，等于给下一次取证留一个假线索）。
       final wireMaxTokens = requestMaxTokens(configured: config.maxTokens);
+      // build171：Anthropic 那一支必填 ⇒ 不走"不发"这一档，未配置时发
+      // [kAnthropicUnsetOutputCeiling]。**这里定一次**，下面两个构造点（主请求体 +
+      // 视觉降级重发）与那条 POST 日志读的全是同一个数。
+      final wireAnthropicMaxTokens =
+          anthropicMaxTokens(configured: config.maxTokens);
       Map<String, dynamic> bodyFor(List<Map<String, dynamic>> msgs) =>
           useAnthropic
               ? buildAnthropicRequest(
                   config: config,
                   openaiMessages: msgs,
                   stream: true,
+                  maxTokensOverride: wireAnthropicMaxTokens,
                   stableSystemTexts: stableSystemTexts)
               : <String, dynamic>{
                   'model': config.model,
@@ -740,7 +784,7 @@ class ApiService extends ChangeNotifier {
                   ...config.samplingParams,
                   // build167：`null` = **不发这个字段**，把默认交回上游（见 `requestMaxTokens`）。
                   // 这一支是 openai-compat 专用（Anthropic 那一支在上面 `buildAnthropicRequest`，
-                  // 它的 `max_tokens` 是必填字段，本改动**没碰**）。
+                  // 它的 `max_tokens` 是必填字段 ⇒ 由 build171 的 `anthropicMaxTokens` 定）。
                   if (wireMaxTokens != null) 'max_tokens': wireMaxTokens,
                   'stream': true,
                   // v1.5.5：ReAct 流式化时传 reasoning_effort（与 completeChat 保持一致）
@@ -762,7 +806,9 @@ class ApiService extends ChangeNotifier {
           'model=${config.model} msgs=${msgList.length} temp=${config.temperature} '
           // build167：不发这个字段时打「未传(上游默认)」，而不是把配置里那个**根本没上线**
           // 的数字当事实打出去（键名 `maxTok=` 保持不变，旧日志仍可 grep）。
-          'maxTok=${useAnthropic ? config.maxTokens : (wireMaxTokens ?? '未传(上游默认)')}',
+          // build171：Anthropic 那一支同样打**上线值**（= 请求体里那个 `max_tokens`），
+          // 不再打 `config.maxTokens` —— 日志说 2048 而请求体发 8192 就是新的谎。
+          'maxTok=${useAnthropic ? wireAnthropicMaxTokens : (wireMaxTokens ?? '未传(上游默认)')}',
           tag: 'Api');
       log.verbose(
           '[Api] streamChat request messages:\n${msgList.map((m) {
@@ -833,6 +879,9 @@ class ApiService extends ChangeNotifier {
                 config: config,
                 openaiMessages: degradedMsgs,
                 stream: true,
+                // build171：降级重发必须是**同一个数** —— 上面那条 POST 日志已经按它打了，
+                // 这里再回落 `config.maxTokens` 就是"主路径修了、降级路径还在发 2048"。
+                maxTokensOverride: wireAnthropicMaxTokens,
                 stableSystemTexts: stableSystemTexts)
             : (json.decode(requestBody) as Map<String, dynamic>)
               ..['messages'] = degradedMsgs;
@@ -1015,7 +1064,9 @@ class ApiService extends ChangeNotifier {
             }
             if (ev.done && ev.stopReason == 'max_tokens') {
               log.warn(
-                  '[Api] Anthropic 因 max_tokens 截断（maxTokens=${config.maxTokens}），'
+                  // build171：这里必须打**发出去的那个数**（= 请求体的 `max_tokens`），
+                  // 打 `config.maxTokens` 会让用户照着 2048 去调配置而真凶是 8192。
+                  '[Api] Anthropic 因 max_tokens 截断（maxTokens=$wireAnthropicMaxTokens），'
                   '回答可能不完整 ⇒ 可在配置里调大最大输出',
                   tag: 'Api');
             }
@@ -1428,8 +1479,11 @@ class ApiService extends ChangeNotifier {
     final useAnthropic =
         resolveChatProtocol(config) == ChatProtocol.anthropicMessages;
     // build167：`max_tokens` 发不发在这里定一次，请求体与日志读**同一个数**
-    // （口径同 streamChat；Anthropic 那一支必填，不走这个判断）。
+    // （口径同 streamChat；Anthropic 那一支必填，见下面 `anthropicMaxTokens`）。
     final completeWireMaxTokens = requestMaxTokens(configured: config.maxTokens);
+    // build171：Anthropic 必填支的上线值也在这里定一次（口径同 streamChat）。
+    final completeWireAnthropicMaxTokens =
+        anthropicMaxTokens(configured: config.maxTokens);
     final url = Uri.parse(useAnthropic
         ? anthropicMessagesEndpoint(config.baseUrl)
         : config.chatEndpoint);
@@ -1453,6 +1507,7 @@ class ApiService extends ChangeNotifier {
                 config: config,
                 openaiMessages: msgList,
                 stream: false,
+                maxTokensOverride: completeWireAnthropicMaxTokens,
                 stableSystemTexts: stableSystemTexts)
             : <String, dynamic>{
                 'model': config.model,
@@ -1479,7 +1534,8 @@ class ApiService extends ChangeNotifier {
         'proto=${useAnthropic ? "anthropic-messages" : "openai-compat"} | '
         'effort=${reasoningEffort ?? '(none)'} | '
         // build167：与请求体同源；不发时打「未传(上游默认)」，键名 `maxTokens=` 不变。
-        'maxTokens=${useAnthropic ? config.maxTokens : (completeWireMaxTokens ?? '未传(上游默认)')}',
+        // build171：Anthropic 那一支同样打上线值（= 请求体里那个 `max_tokens`）。
+        'maxTokens=${useAnthropic ? completeWireAnthropicMaxTokens : (completeWireMaxTokens ?? '未传(上游默认)')}',
         tag: 'Api',
       );
       log.verbose(
@@ -1637,7 +1693,8 @@ class ApiService extends ChangeNotifier {
         requestUsage = usageLastWins(requestUsage, d.usage);
         if (d.stopReason == 'max_tokens') {
           log.warn(
-              '[Api] completeChat 被 max_tokens 截断（maxTokens=${config.maxTokens}）'
+              // build171：同 streamChat —— 打**发出去的那个数**，不打配置值。
+              '[Api] completeChat 被 max_tokens 截断（maxTokens=$completeWireAnthropicMaxTokens）'
               '，回答可能不完整',
               tag: 'Api');
         }

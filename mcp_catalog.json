@@ -1,0 +1,98 @@
+{
+  "dataVersion": "2026.09.28",
+  "description": "Nexus 插件市场「推荐连接器」目录远程更新源。entries 按 id 覆盖内置 McpCatalog.builtinEntries，全新 id 追加；更新此文件无需发布 App。内容必须与 lib/models/mcp_catalog.dart 的 builtinEntries 同形（同一份 fromJson/decodeEntries 解析），条目只是推荐展示，安装一律走 SecurityGate + installMcp 的用户确认。",
+  "entries": [
+    {
+      "id": "amap",
+      "name": "AMap Maps",
+      "nameZh": "高德地图",
+      "description": "POI 搜索、路线规划、实时天气、骑行/步行/驾车导航等 12 大位置服务。中文场景首选。",
+      "endpoint": "https://mcp.amap.com/mcp",
+      "auth": "key-query",
+      "queryParam": "key",
+      "secretHint": "到 lbs.amap.com 开放平台 → 应用管理 → 创建应用 → 创建 Key。⚠️ 服务平台必须选「Web 服务」——不要选「Web端(JS API)」！两者都不需要 SHA1 极易混；选错 JS API 时能连上（工具列表正常）但一调用就报 USERKEY_PLAT_NOMATCH",
+      "docsUrl": "https://lbs.amap.com/api/mcp-server/gettingstarted",
+      "category": "生活/地图",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "github",
+      "name": "GitHub (Official)",
+      "nameZh": "GitHub 官方",
+      "description": "仓库/Issue/PR/文件读写全套 22 工具。需 GitHub PAT（Settings → Developer settings 生成，勾 repo 权限）。",
+      "endpoint": "https://api.githubcopilot.com/mcp/",
+      "auth": "key-header",
+      "headerName": "Authorization",
+      "headerPrefix": "Bearer ",
+      "secretHint": "github.com → Settings → Developer settings → Personal access tokens → Generate（勾 repo / read:user）",
+      "docsUrl": "https://github.com/github/github-mcp-server",
+      "category": "开发",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "context7",
+      "name": "Context7",
+      "nameZh": "Context7 库文档",
+      "description": "实时检索各种库/框架的最新官方文档与代码示例，写代码时避免 API 过时幻觉。免费，key 可选。",
+      "endpoint": "https://mcp.context7.com/mcp",
+      "auth": "key-header",
+      "headerName": "CONTEXT7_API_KEY",
+      "headerPrefix": "",
+      "secretHint": "context7.com 免费使用；要更高速率限制时才需要到官网申请 API Key",
+      "docsUrl": "https://context7.com",
+      "category": "开发/文档",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "deepwiki",
+      "name": "DeepWiki",
+      "nameZh": "DeepWiki 仓库问答",
+      "description": "对公开 GitHub 仓库提问，返回结构化的架构/用法解读（把仓库变成可问答的 wiki）。免费。",
+      "endpoint": "https://mcp.deepwiki.com/mcp",
+      "auth": "none",
+      "secretHint": "",
+      "docsUrl": "https://deepwiki.com",
+      "category": "开发/文档",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "mslearn",
+      "name": "Microsoft Learn",
+      "nameZh": "微软官方文档",
+      "description": "检索 Microsoft Learn 官方文档（Azure/.NET/Windows/VS 等）。免费公开端点。",
+      "endpoint": "https://learn.microsoft.com/api/mcp",
+      "auth": "none",
+      "secretHint": "",
+      "docsUrl": "https://learn.microsoft.com/api/mcp",
+      "category": "开发/文档",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope 广场",
+      "nameZh": "魔搭托管 MCP",
+      "description": "魔搭社区的托管 MCP 生态入口（中文生态，含支付宝/地图等托管实例）。到 modelscope.cn 的 MCP 广场获取带 token 的专属端点后填入。",
+      "endpoint": "https://mcp.modelscope.cn/mcp",
+      "auth": "key-header",
+      "headerName": "Authorization",
+      "headerPrefix": "Bearer ",
+      "secretHint": "modelscope.cn → MCP 广场 → 选服务 → 「连接服务」里复制带你 token 的专属 URL/Token",
+      "docsUrl": "https://modelscope.cn/mcp/servers",
+      "category": "中文生态",
+      "verifiedAt": "2026-09-13"
+    },
+    {
+      "id": "didi",
+      "name": "DiDi Ride",
+      "nameZh": "滴滴出行",
+      "description": "打车比价/叫车/查单（taxi_estimate / taxi_create_order 等）。需在 mcp.didichuxing.com 用滴滴账号激活个人 MCP Key。",
+      "endpoint": "https://mcp.didichuxing.com/mcp-servers",
+      "auth": "key-query",
+      "queryParam": "key",
+      "secretHint": "mcp.didichuxing.com 用滴滴账号登录 → 激活个人 MCP Key → 填入此处",
+      "docsUrl": "https://mcp.didichuxing.com",
+      "category": "生活/出行",
+      "verifiedAt": "2026-09-13"
+    }
+  ]
+}

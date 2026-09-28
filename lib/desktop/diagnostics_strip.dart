@@ -92,7 +92,7 @@ String? resolveDartLanguageServer({
 /// 其余项是"表里有名字、PATH 上探一探这台机装没装"：
 /// · 没探到 ⇒ UI 说「这台机没装 X 语言服务器」；
 /// · 探到了 ⇒ UI 说「X 语言服务器已探到，这一版还没接进诊断条」。
-/// 两种都不是「0 条」，也不是「正在安装」——**装东西归机主，本表不提供任何自装路径**，
+/// 两种都不是「0 条」，也不是「正在安装」——**装东西归用户，本表不提供任何自装路径**，
 /// 也不在这里启动非 dart 的进程（那是下一刀的事，且要先过 A 的口径）。
 class LangSpec {
   const LangSpec({
@@ -212,7 +212,7 @@ class _LspDiagnosticsPanelState extends State<LspDiagnosticsPanel> {
   bool get _wired => _spec?.wired ?? false;
 
   /// 表里有名字但这一版没接 ⇒ 句子点名到语言。措辞跟着"PATH 上探没探到"变，
-  /// 不写「正在安装」（装东西归机主），也不写「0 条」（那是查过没问题的假话）。
+  /// 不写「正在安装」（装东西归用户），也不写「0 条」（那是查过没问题的假话）。
   String _unwiredReason() {
     final spec = _spec;
     if (spec == null) return '这类文件还没接诊断服务';

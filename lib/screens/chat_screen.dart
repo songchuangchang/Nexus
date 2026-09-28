@@ -34,6 +34,10 @@ import '../services/agent_orchestrator.dart';
 import '../services/agent_tools.dart';
 import '../services/api_service.dart';
 import '../services/app_download_service.dart';
+// build171：编排/ReAct 那一条的截断标注要与出网体同源，需要 resolveChatProtocol
+// 与 anthropicMaxTokens 判"这一支到底发没发 max_tokens"。放在宿主库里 import
+// （part 文件不许带 import），两个 part 文件 chat_screen_react / chat_screen_orchestrator 共用。
+import '../services/protocol/anthropic_protocol.dart';
 import '../services/attachment_service.dart';
 import '../services/conversation_summary_service.dart';
 import '../services/context_budget_service.dart';
@@ -95,7 +99,7 @@ import '../utils/prompt_prefix.dart';
 // chat_screen_react.dart（catch 决策 + finally 接手续写）与本文件的气泡接线——
 // part 文件不能自带 import，同上方 prompt_prefix 口径落在宿主上。
 import '../utils/drop_continue.dart';
-// build167（机主 26 日 18:4x「我开了后台，退出来又给我暂停」）：「愿意后台化」总闸的
+// build167（用户 26 日 18:4x「我开了后台，退出来又给我暂停」）：「愿意后台化」总闸的
 // 持久化位。消费点在 part 文件 chat_screen_message.dart 的 `_onAppLeftForeground`
 // —— part 文件不能自带 import（同上方 drop_continue 口径），所以导入落在宿主这里。
 // 判据本身在 `drop_continue.dart` 的 `shouldAbortStreamOnLeaveApp`，这里只读那一位。
@@ -2008,7 +2012,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   // [continueEntryKindFor] —— 旧的那条**刻意不认**"0 正文"那一句，
                                   // 于是纯 thinking 的一轮（真机 7 轮里 5 轮如此）既不自动续、
                                   // 也没有任何可点的东西，屏幕上只剩一句"本轮没有结果"。
-                                  // 机主此刻最直接的痛就是这个（「我给他终止了」之后他没按钮可点）。
+                                  // 用户此刻最直接的痛就是这个（「我给他终止了」之后他没按钮可点）。
                                   // 按钮**写什么**由同一个判据给（`continueEntryLabel`）：
                                   // 整轮重跑的那一类写「重新发起这一轮」，不写"接着写"。
                                   onContinue: (msg.role ==

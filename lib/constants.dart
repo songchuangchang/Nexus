@@ -10,7 +10,7 @@ library constants;
 const String kAppVersionConst = String.fromEnvironment(
   'APP_VERSION',
   defaultValue:
-            '1.7.113+170', // build170：修复回答里混入模型自述、短英文回答整条消失；灵动岛新增「等你回答」状态。
+            '1.7.114+171', // build171：远程规则的两道闸补齐（扫描器可被远程清零、正则无回溯闸）；Claude 系未配置时不再按 2048 静默截断；备份导入缺表改为回滚并如实报失败；编排路径的附件占位改成真话并补视觉闸日志。
 );
 
 /// build115（typed 内核最小切片）：答案来源开关。

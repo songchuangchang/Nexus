@@ -754,12 +754,21 @@ class BackupService {
     // 收藏要等**消息循环**跑完才重映射得动（`messageIdMap` 在那时才齐），
     // 而会话循环在消息循环之前 —— 所以先记账，后面补一刀。
     final starredFixups = <({String convId, String starred})>[];
+    // build171（D13）：本次导入**真正写过的表名**，由 put 的调用点累积。
+    // 这里不写死名单：权威清单住在 StorageService._createV2Tables 的那几条 CREATE，
+    // 要核查什么表，取决于导入这条路真的动过什么表（用例从源码枚举那几条 CREATE）。
+    final writtenTables = <String>{};
 
     await db.transaction((txn) async {
       // 事务内统一入口：replace 语义与各 StorageService.saveXxx 一致；
       // 恢复导入不做条数裁剪（保持备份原样），故不调用带 trim 的 saveGlobalMemory/saveProjectMemory
-      Future<void> put(String table, Map<String, dynamic> row) =>
-          txn.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
+      // 先记表名再写：INSERT 抛了也要留下这一笔 —— 收尾那次 sqlite_master 核查靠它认出
+      // 「这一表的写入全失败过」，不让它躲在插件循环那个只 warn 的 catch 里。
+      Future<void> put(String table, Map<String, dynamic> row) {
+        writtenTables.add(table);
+        return txn.insert(table, row,
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
       Future<bool> exists(String table, String id) async =>
           (await txn.query(table, where: 'id = ?', whereArgs: [id], limit: 1))
               .isNotEmpty;
@@ -1033,6 +1042,10 @@ class BackupService {
           pluginCount++;
         } catch (e, st) {
           // 单条插件失败不阻塞整体导入，记日志继续
+          //   ↑ 这个"继续"只兜**坏行**：表整体不在时逐行都会走到这里，坏行容错就变成
+          //   永久丢配置了 —— 那一路由本函数收尾的 sqlite_master 核查判成失败并回滚
+          //   （build171 D13；把它改成这里 rethrow 会把 build133 修的"缺失 metadata
+          //   不等于坏数据"那套容错一起废掉，所以收口放在收尾，不在这里）。
           // v1.7.37（待办⑬）：日志只写插件 id——row.metadataJson 可能含 MCP 鉴权头明文，
           // 整行打印会泄露凭据（铁律：日志不写 Key 明文）。
           _logger.warn('[Backup] import plugin row failed: id=${row['id']}',
@@ -1171,6 +1184,28 @@ class BackupService {
         }
         await put('context_compaction_segments', row);
         compactionCount++;
+      }
+
+      // build171（D13）：表存在性核查——这一段是「界面报完成、插件配置永久丢失」唯一的收口。
+      // 上面插件循环的 catch 只写日志、不 rethrow：`plugins` 表不在时（建表只跑
+      // onCreate/onUpgrade，启动自检不补 ⇒ 老库可能压根没有它）每条 INSERT 都失败却被
+      // 逐行咽下，pluginCount 归零但没人读它，事务照常 commit。
+      // 口径：本次真的写过的表（writtenTables）必须在 sqlite_master 里都在；
+      // 缺任何一张就抛 ⇒ 上面 `}); // end transaction` 之前的一切整体回滚、原数据分毫不动，
+      // 错误沿 importFromString 冒到界面（backup_settings_screen 那个 catch 会念出原因）。
+      // 这里不许退化成 warn 一下继续：warn 的那一次，用户的 MCP 配置（含鉴权头）就真没了。
+      final existingTables = <String>{
+        for (final r in await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+          (r['name'] as String).toLowerCase(),
+      };
+      final missingTables = <String>[
+        for (final t in writtenTables)
+          if (!existingTables.contains(t.toLowerCase())) t,
+      ]..sort();
+      if (missingTables.isNotEmpty) {
+        throw _BackupFormatException(
+            '备份导入缺少数据表（${missingTables.join('、')}），本次导入已回滚，原数据未改动');
       }
     }); // end transaction —— 此处之前任何异常都会整体回滚，原数据不动
 

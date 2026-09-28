@@ -1,4 +1,4 @@
-// build161（机主原话「后台还是不行」「修了他妈十几次了」）的判据层。
+// build161（真机反馈：后台仍断、且这一族已反复修过十几轮）的判据层。
 //
 // 真机日志已经把病灶钉死了：切后台之后进程**没冻**、chunk 一直在进
 // （11:48:43 切后台 → 21 秒收了 997 个 chunk → `Connection closed while
@@ -13,7 +13,7 @@
 // build162（同一位病灶的下半段）：① 的**时机**改到"回到前台那一刻"，判据与额度不变
 // —— 见本文件末尾 [DropContinuePlan] / [DropContinueScheduler] 那一段的真机日志结论。
 //
-// build165（#87，机主 08:04 那份导出 + 原话「我给他终止了」「回去之后他又重新开始搞」）：
+// build165（#87，用户 08:04 那份导出 + 原话「我给他终止了」「回去之后他又重新开始搞」）：
 // ① 退到后台时**本端主动**收起这条流（[shouldAbortStreamOnLeaveApp] / [LeftAppAbortSignal]），
 //    这一态既不是用户停止也不是网络故障，判据与文案都在本文件（[leftAppAbortCarried]、
 //    [bgPauseNote]、[bgPauseIslandLabel]）；
@@ -23,7 +23,7 @@
 //    [continueEntryKindFor]，**按钮写什么由那个判据一并给**（[continueEntryLabel]）——
 //    整轮重跑的那种一律写「重新发起这一轮」，不许再写"接着写"。
 //
-// build167（机主 26 日 18:4x 装完 166 那句「第一个问题我开了后台，退出来又给我暂停」，
+// build167（用户 26 日 18:4x 装完 166 那句「第一个问题我开了后台，退出来又给我暂停」，
 // 取证见 `docs/BUGSCAN_build166_20260926.md` ③）：① 的那道主动收流**从此挂在一道总闸上**
 // （设置里那一项「愿意后台化」，持久化位住在 `lib/utils/background_run_switch.dart`）——
 // 165 那句前提"进程反正会被厂商冻结、等它断只会得到一句假'网络中断'"只对**没给后台放行**
@@ -43,7 +43,7 @@ import 'stop_round.dart';
 
 /// 一条用户消息引发的这一轮，最多自动续几次。
 ///
-/// 这不是配置项，是**成本承诺**：机主批准 ① 的原话条件是"最坏多付一轮 token"，
+/// 这不是配置项，是**成本承诺**：用户批准 ① 的原话条件是"最坏多付一轮 token"，
 /// 多付几次他没批过。测试里用字面量 `1` 走一遍连续掉线（见
 /// test/build161_bg_continue_test.dart 的证伪探针）：把这里改成 2，那条必红。
 const int kMaxAutoContinuesPerUserRound = 1;
@@ -66,7 +66,7 @@ enum DropContinueChoice {
 ///  · `hasReceivedContent` / `hasReceivedThinking`：**这一轮有没有可续的内容**。
 ///    build161~166 只认正文（0 字掉线没有落点，`_continueFromMessage` 对空正文直接
 ///    return，自动续反而会在岛上留一条永远不增长的假「进行中」）。
-///    **build167 改成"正文或思考落点"任一成立即可续**，改判据的是机主 26 日 18:4x
+///    **build167 改成"正文或思考落点"任一成立即可续**，改判据的是用户 26 日 18:4x
 ///    那条真机反馈（`docs/BUGSCAN_build166_20260926.md` ③-1，164 的取证原话是
 ///    「纯 thinking 轮在后台断了会塌成报错」）：总闸开着不再掐线之后，这条会以
 ///    更难看的形状出现 —— 一轮只有思考在飞的请求被断掉，屏幕上是 ❌ + 「网络中断」，
@@ -189,7 +189,7 @@ List<(String, ContinueEntryKind)> get _entryTails => [
 ///
 /// build165 ③ 要修的就是这里：旧判据（[hasNetworkDropNote]）**刻意不认**"0 正文"
 /// 那一句，于是纯 thinking 的一轮（真机 7 轮里 5 轮如此）既不自动续、也不给按钮，
-/// 屏幕上只剩一句"本轮没有结果" —— 机主看到的"从头开始搞，又什么都点不了"。
+/// 屏幕上只剩一句"本轮没有结果" —— 用户看到的"从头开始搞，又什么都点不了"。
 /// 现在照样给按钮，但按钮说的是真话（见 [continueEntryLabel]）。
 ContinueEntryKind? continueEntryKindFor(String content) {
   for (final (tail, kind) in _entryTails) {
@@ -200,7 +200,7 @@ ContinueEntryKind? continueEntryKindFor(String content) {
 
 /// 这枚按钮的文字：只有**真的能接上断点**的那一种才配「接着写」。
 ///
-/// 为什么这是硬性要求而不是文案偏好：机主原话「回去之后他又重新开始搞」——
+/// 为什么这是硬性要求而不是文案偏好：用户原话「回去之后他又重新开始搞」——
 /// 那一轮只有 thinking，一个字正文都没收到，`_continueFromMessage` 无处可接，
 /// 实际发生的是整轮重跑（重发提问、重烧检索轮）。按钮写"接着写"就是谎报，
 /// 而谎报的代价他已经付过一次（build158 那一族）。
@@ -257,7 +257,7 @@ String dropContinuePendingIslandLabel({required int used, required bool isZh}) =
 /// 整轮重发那一笔**挂起待前台**时岛上那一行（build167）。
 ///
 /// 为什么不是复用上面那句：那一行写的是"接着写"，而这种轮次一个字正文都没有，
-/// 兑现时做的是整轮重跑（见 [dropContinueEntryKindForDropped]）。机主为这件事付过
+/// 兑现时做的是整轮重跑（见 [dropContinueEntryKindForDropped]）。用户为这件事付过
 /// 一次谎的代价（165「回去之后他又重新开始搞」），所以**能不能接断点决定文案**这条
 /// 规矩现在要管到掉线这一族，不只是"被本端收起"那一族。
 /// 与 [dropContinuePendingIslandLabel] 同一条红线：此刻没有流在跑，不许写"正在"。
@@ -308,7 +308,7 @@ String dropContinueIslandLabelFor({
 // ============================================================================
 // build162：**时机**层。判据（[decideDropContinue]）管"该不该续"，这里只管"什么时候起"。
 //
-// 病灶（机主 16:45 那份真机日志，包 1.7.104+161，这条已定为前提，不再调查）：
+// 病灶（用户 16:45 那份真机日志，包 1.7.104+161，这条已定为前提，不再调查）：
 //   16:40:30.952 Lifecycle: inactive        ← 他切后台
 //   16:40:37.011 [Api] ClientException during streamChat（非本端关闭）
 //   16:40:37.016 [CHAT] continue-from failed: Connection closed while receiving data
@@ -436,7 +436,7 @@ class DropContinueScheduler {
 
   /// build165 ①②：退后台把这条流收起来之后，记一笔"回到 App 重新发起这一轮"。
   ///
-  /// 与 [armAtDrop] 共用**同一本额度**（`_used` / `_quotaRound`）：机主批的是
+  /// 与 [armAtDrop] 共用**同一本额度**（`_used` / `_quotaRound`）：用户批的是
   /// "最坏多付一轮 token"，不是"每种失败各多付一轮"。两处刻意不同：
   ///  · **不看收到几个字**（`decideDropContinue` 那条"**正文与思考落点都没有**才不给续"
   ///    的判据在这里不成立，build167 之后那条判据自己已经认思考落点了）：
@@ -518,7 +518,7 @@ bool dropContinueStale({
 //     `Connection closed while receiving data` 3 次），**8/8 次都落在
 //     `Lifecycle: resumed` 之前 0.10~0.19 秒**；
 //   · 前台服务当时在跑（`id=1001 ongoing=true`、`promotedFlag=true`、`canPost=true`）；
-//   · 机主确认官方端点与中转站是**同一种失败形状** ⇒ 上游这条排除。
+//   · 用户确认官方端点与中转站是**同一种失败形状** ⇒ 上游这条排除。
 // 最自洽的机制：进程被厂商侧冻结 ⇒ 没人读 socket ⇒ 缓冲填满 ⇒ 上游关线 ⇒
 // 解冻那一瞬 read 立刻报错（同时解释"时长随机"与"断口总在 resumed 之前"）。
 // AOSP 那一层已用官方原文排除（Doze 要"未接电源+静止+灭屏一段时间"；带前台服务时
@@ -529,7 +529,7 @@ bool dropContinueStale({
 // 为什么这一态必须独立、绝不能蹭 `_reactLoopStopRequested`：那个布尔在 catch 里
 // 被读成"用户按了停止"（build158 修的就是这件事的另一个方向）。蹭它的后果是气泡写
 // 「_(用户已终止思考)_」并**落库** —— 用户没按过停止，记录里却说他按了；而岛走 quiet
-// 撤条，回到 App 什么都看不见。机主原话「我给他终止了」说的正是他**手动**终止这件事
+// 撤条，回到 App 什么都看不见。用户原话「我给他终止了」说的正是他**手动**终止这件事
 // 不该由我们在背后替他做。
 // ============================================================================
 
@@ -562,7 +562,7 @@ bool leftAppAbortCarried({required int abortedRound, required int round}) =>
 ///
 /// 四个条件各挡一类具体的事故：
 ///  · [backgroundRunAllowed]（build167 新增）：设置里那道「愿意后台化」总闸。
-///    **开 ⇒ 一律不收**：机主 26 日 18:4x 那句「第一个问题我开了后台，退出来又给我暂停」
+///    **开 ⇒ 一律不收**：用户 26 日 18:4x 那句「第一个问题我开了后台，退出来又给我暂停」
 ///    说的就是这道闸还没存在时的自相矛盾 —— 我们一边让他去系统里给放行、一边自己掐线。
 ///    165 那套"等它断只会得到一句假『网络中断』"的推理，前提是**进程会被冻结**，
 ///    而那前提只对没给放行的设备成立。默认值 `false` 是刻意的：没拨过这一位的用户

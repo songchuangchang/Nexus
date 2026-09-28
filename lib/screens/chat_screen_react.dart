@@ -28,10 +28,10 @@ extension ChatScreenReActExt on _ChatScreenState {
     // 一路空转到 maxRounds 由用户手动停止。判定与文案见 react_parser 的 G39 段。
     int inconclusiveStreak = 0;
     // build164（#82）：阶段小结（<progress>）的序号，跨轮累加、每条消息一套，
-    // 只为日志形状 `[ReAct] 阶段小结 #N：<原文>`（机主要求能在日志里数出第几条）。
+    // 只为日志形状 `[ReAct] 阶段小结 #N：<原文>`（用户要求能在日志里数出第几条）。
     int progressNoteSeq = 0;
     // build164（#82）：G39 计数期间每轮的最后一个动作，攒着给放弃文案**按事实说话**
-    // （旧文案写「① 中转站返回空流 / 502」，机主用的是官方端点，被他原话顶回来：
+    // （旧文案写「① 中转站返回空流 / 502」，用户用的是官方端点，被他原话顶回来：
     //  「我用的是官方的，不是中转站的」）。streak 清零时本列表一并清零，保证
     // 文案里报的就是"最近这一段连续空转"。
     final inconclusiveActions = <String>[];
@@ -40,7 +40,7 @@ extension ChatScreenReActExt on _ChatScreenState {
     //  - null = 一条流都没收完过（连接阶段就失败），该说"未知"就说未知；
     //  - false = 收完过且没打满；true = 至少有一轮是被长度上限截断收的口。
     // 耗时画像那行（round_timing 的 `maxTokens 打满：…`）此前在这条路径上恒报
-    // 「未知（该路径未告知）」——机主看到的"老是中断"在日志里就是没有凭据的那一格。
+    // 「未知（该路径未告知）」——用户看到的"老是中断"在日志里就是没有凭据的那一格。
     bool? sawMaxTokensTruncation;
     // v1.7.26：流式 answer 过滤跨 chunk 状态（[0]=是否处于 <answer> 块内）
     final ansState = <bool>[false];
@@ -61,7 +61,7 @@ extension ChatScreenReActExt on _ChatScreenState {
     // "0 字没有落点"。这里放一个**取值口**，在每次尝试开始时接一次（不是每个 chunk，
     // 流式期间零分配），外层 catch 才够得着 while 作用域。
     String Function() partialRoundAnswer = () => '';
-    // build167（机主 26 日 18:4x 那条反馈带出的 164 老洞）：**思考落点**的同款取值口。
+    // build167（用户 26 日 18:4x 那条反馈带出的 164 老洞）：**思考落点**的同款取值口。
     // 「本轮有没有可续的内容」以前只认正文（`hasReceivedContent` 一族），纯 thinking 的轮
     // 一旦断了就塌成报错；总闸（`lib/utils/background_run_switch.dart`）开着不再掐线之后，
     // 这条会以更难看的形状出现 ⇒ 判据改成"正文**或**思考落点"，成本口径是
@@ -203,7 +203,7 @@ extension ChatScreenReActExt on _ChatScreenState {
     // build167：攒下那一笔**能不能接断点**（判据 = `dropContinueEntryKindForDropped`，
     // 与气泡上那枚按钮同源）。false = 有正文，从断点往下接；true = 一个字正文都没有
     // （只有思考落点，或被本端收起的那一笔），发生的是整轮重发 ⇒ 岛上的话必须写
-    // 「重新发起这一轮」，写「接着写」就是机主 165 那句「回去之后他又重新开始搞」。
+    // 「重新发起这一轮」，写「接着写」就是用户 165 那句「回去之后他又重新开始搞」。
     // 这里只是把判据已经给过的结论带过 await 给 finally 用，不重算第二遍。
     var dropWholeRound = false;
     unawaited(LiveTaskWiring.onResearchStart(userMsg.id, '准备中 · 上限 $maxRounds 轮',
@@ -626,7 +626,7 @@ extension ChatScreenReActExt on _ChatScreenState {
               _followBottomIfNeeded();
 
         // build93(S4) 曾把这里的下限抬到 4096（"ReAct 多标签协议输出较长"）。
-        // **build167 撤掉这道抬升**：机主 26 日拍板「可以」= 把 `max_tokens` 的默认交回上游。
+        // **build167 撤掉这道抬升**：用户 26 日拍板「可以」= 把 `max_tokens` 的默认交回上游。
         // 官方口径（api-docs.deepseek.com，2026-09-26 取）是不传时非思考档 8K、思考档 64K，
         // 我们发的 4096 **比厂商默认还低一半** ⇒ 一轮里要装 thinking + 整页 HTML 必然被拦腰
         // （真机形状：气泡头写「输出被截断，自动续写中…」、正文停在半截 CSS）。
@@ -649,7 +649,7 @@ extension ChatScreenReActExt on _ChatScreenState {
         // 鉴权/参数类（401/400/404）重试无效直接抛出，由外层 catch 硬终止。
         const kMaxTransportRetries = 2;
         var transportAttempt = 0;
-        // build158（机主那份导出的结论「甲：进程活着、流在收，卡在岛的刷新」）：
+        // build158（用户那份导出的结论「甲：进程活着、流在收，卡在岛的刷新」）：
         // 岛上的摘要行此前只在**每轮开始**时写一次，而一轮里模型可以连吐 49 秒 /
         // 747 个 chunk —— 那 49 秒通知栏一动不动，用户读到的就是"跑着跑着冻住了"。
         // 下面那个节流点用这个时间戳把"正在收"显示出来（有新内容才推，≥5 秒一次）。
@@ -1052,14 +1052,14 @@ extension ChatScreenReActExt on _ChatScreenState {
         //     3) 交给 registry.dispatch(type, attrs) → 一行分发，不再 if/else 317 行
         // 阶段1(T7)：记住该模型不支持 tools，后续请求不再携带
         //
-        // build164（#82 机主指令「工具调用呢，全部都默认开启，因为很少模型是不支持的」）：
+        // build164（#82 用户指令「工具调用呢，全部都默认开启，因为很少模型是不支持的」）：
         // 探测被拒 **不再落库**。旧实现把一次 400/422 的判定 `saveApiConfig` 写死成
         // supportToolCalls=false ⇒ 一次误判（网关瞬时故障、tool_choice 不认、参数白名单
         // 差异）就把这条配置**永久降级**，而且下次开机也不会自愈。
         // `api_config.dart:363` 的注释同样点名这条路径（它曾把「密钥没读到」的标记洗掉，
         // 酿成 build147 那条 Key 消失 P0）——copyWith + 落库这条组合是本仓最容易被踩的。
         // 新口径：只改**会话内**的配置对象（本轮/本条消息继续按无 tools 跑，标签协议照旧），
-        // 库里那份一个字都不动。机主在设置页手动关掉 supportToolCalls 仍然是有效配置
+        // 库里那份一个字都不动。用户在设置页手动关掉 supportToolCalls 仍然是有效配置
         // ——那走的是 api_config_edit_screen 的保存路径，是用户意图，不在本次改动范围内。
         if (toolsRejected) {
           final baseCfg = _currentSessionModel ?? _apiConfig;
@@ -1266,7 +1266,7 @@ extension ChatScreenReActExt on _ChatScreenState {
           }
           if (type == kProgressTagName) {
             // build164（#82）：阶段小结 —— **只**成 reasoning step，绝不进正文。
-            // 三条理由：① content 是复制/朗读/上下文回灌的源，塞进去会污染（机主要的是
+            // 三条理由：① content 是复制/朗读/上下文回灌的源，塞进去会污染（用户要的是
             // 气泡里看得见，不是正文里多一句）；② AnswerFinalizer/O7 定稿链会把控制标签
             // 从正文里剥掉，塞进去等于送给清洗链吃掉；③ reasoningSteps 随 ChatMessage.toMap
             // 整体落库 ⇒ 零 DB 迁移（schema v39 不许加列）。
@@ -2030,7 +2030,7 @@ extension ChatScreenReActExt on _ChatScreenState {
         // 正文是完整的，给它贴"被截断"等于说谎。
         // 为什么原来看不见这件事：N11 只自动续写**一次**（防无限续拉），续写完仍被打满、
         // 或这一轮直接经插件 dispatch 定稿的，旧链一句提示都不给，半截话就冒充结论落库
-        // ——build164 队列里机主那句「老是中断」的取证正是这条（maxTokens 4096 打满）。
+        // ——build164 队列里用户那句「老是中断」的取证正是这条（maxTokens 4096 打满）。
         final answerTruncatedThisRound = isAnswerTruncated(
             inAnswerBlock: ansState[0], rawResp: rawResp);
         if (answerTruncatedThisRound &&
@@ -2038,8 +2038,15 @@ extension ChatScreenReActExt on _ChatScreenState {
             !roundIsToolRound &&
             !hasAskUserThisRound) {
           final marked = applyTruncationNotice(assistantMsg.content,
-              // 0 = 本应用**没发**这个字段，上限由上游默认决定（文案会照实写，不编一个数）。
-              maxTokens: requestMaxTokens(configured: reactApiCfg.maxTokens) ?? 0,
+              // build171（同源）：`0` 的意思是"本应用没发这个字段"，文案会照实写
+              // 「未传(上游默认)」。但 **Anthropic 那一支从 171 起永远发了数**
+              // （未配置时发 kAnthropicUnsetOutputCeiling=8192），所以这一路再无条件走
+              // `?? 0`，就会在被真截断的那一轮写下"未传"——同一轮里请求体发 8192、
+              // 界面说未传。api_service 侧 171 已经修，这里是编排/ReAct 侧的同一个残口。
+              maxTokens: resolveChatProtocol(reactApiCfg) ==
+                      ChatProtocol.anthropicMessages
+                  ? anthropicMaxTokens(configured: reactApiCfg.maxTokens)
+                  : (requestMaxTokens(configured: reactApiCfg.maxTokens) ?? 0),
               isZh: isZh);
           if (marked != assistantMsg.content) {
             assistantMsg.content = marked;
@@ -2089,7 +2096,7 @@ extension ChatScreenReActExt on _ChatScreenState {
                 final cleaned = AnswerFinalizer.finalize(
                         stripForeignMonologue(bare, isZh: isZh))
                     .clean;
-                // build164（#82）：删掉「多为中转站空流/502 所致」这句猜测。机主用的是
+                // build164（#82）：删掉「多为中转站空流/502 所致」这句猜测。用户用的是
                 // **官方端点**（api.deepseek.com），这句把责任指向中转站、害他白排查一轮
                 // （原话「我用的是官方的，不是中转站的」）；而空流/502 本来就在传输层抛错、
                 // 走不到这一支。改成只说这份数据能证实的事实（连续多轮只有 thinking）。
@@ -2143,7 +2150,7 @@ extension ChatScreenReActExt on _ChatScreenState {
               final t = p['type'];
               // build164（#82）：`progress` 是给用户看的一句话、不是动作，必须排除——
               // 否则阶段小结算进动作账本，放弃文案会报出「最后一次动作是 progress」
-              // 这种没有信息量的话（而那正是机主要避免的形态）。
+              // 这种没有信息量的话（而那正是用户要避免的形态）。
               if (t != null &&
                   t != 'thinking' &&
                   t != 'answer' &&
@@ -2174,7 +2181,7 @@ extension ChatScreenReActExt on _ChatScreenState {
             } else if (inconclusiveStreak == kInconclusiveProgressStreak) {
               // build164（#82 核心）：**强制小结轮**。到第 4 轮不再只是催它收口，
               // 而是要求它先输出一句 <progress> 阶段小结（已掌握什么、还缺什么），
-              // 然后**允许继续查**。机主要的就是这句人话出现在正文可见位置；
+              // 然后**允许继续查**。用户要的就是这句人话出现在正文可见位置；
               // 旧链在这里什么都不给用户，一路憋到 force 那一支甩一段模板报错。
               workingMessages.add(ChatMessage.create(
                 conversationId: widget.conversation.id,
@@ -2377,7 +2384,7 @@ extension ChatScreenReActExt on _ChatScreenState {
     } catch (e, st) {
       // v1.7.38（E）：用户主动停止（流被 stopFlag 关闭抛 ClientException 等）不算崩溃——
       // 记 info 而非 error，写"已终止"进度文案而非 ❌ 错误文案（后者会留在会话历史污染下轮上下文）
-      // build158（机主 07:19:55 那份导出）：旧判据是
+      // build158（用户 07:19:55 那份导出）：旧判据是
       // `_reactLoopStopRequested || e.contains('Connection closed') || …`
       // —— 把"网络断了"当成"用户按了停止"。同毫秒里 api 层刚写完
       // 「ClientException during streamChat（非本端关闭）」，这里却写
@@ -2423,7 +2430,7 @@ extension ChatScreenReActExt on _ChatScreenState {
             dropReceived = collectReceivedAnswer();
             // build167：「有没有可续的内容」从"只认正文"改成"**正文或思考落点**"
             // （判据一份都在 `drop_continue.dart` 的 `decideDropContinue`，取证与成本口径
-            // 写在那一条的注释里：机主 26 日 18:4x「我开了后台，退出来又给我暂停」⇒
+            // 写在那一条的注释里：用户 26 日 18:4x「我开了后台，退出来又给我暂停」⇒
             // 总闸开着不再掐线之后，纯 thinking 的轮断了塌成报错这件事会更难看）。
             // 没有正文的那一笔欠的是**整轮重发**（`dropContinueEntryKindForDropped` 给答案，
             // 与气泡上那枚「重新发起这一轮」同源），岛上那句话随之而变。
@@ -2570,7 +2577,7 @@ extension ChatScreenReActExt on _ChatScreenState {
                       isZh: isZh);
         } else if (endKind == StreamEndKind.networkDropped) {
           // 已经落了半截答案的一轮也必须说一句"是被断的" ——
-          // 否则那半截读起来就是一份完整回答，机主不知道后面还有内容没到。
+          // 否则那半截读起来就是一份完整回答，用户不知道后面还有内容没到。
           assistantMsg.content =
               '${assistantMsg.content}\n\n${networkDropNote(hasContent: true, isZh: isZh)}';
         }
@@ -2737,7 +2744,7 @@ extension ChatScreenReActExt on _ChatScreenState {
       // 否则最该看的（卡住、中止）反而没有。
       // build164（#82 取证 ③）：把「本轮是不是被 maxTokens 打满收的口」交给画像——
       // 接线口径照 `round_timing.dart` 注释里写的那份（三态，没收完过流就留 null）。
-      // 不接线的后果就是机主看到的那格「maxTokens 打满：未知」，"老是中断"在日志里
+      // 不接线的后果就是用户看到的那格「maxTokens 打满：未知」，"老是中断"在日志里
       // 始终没有凭据。
       // `stream:` 那一格由我（审核方）补接：#82 与 #84 当时互相把这一格推给对方，
       // 谁都没接 —— 这正是本仓那条"注释承诺了但没人实现"的形状，故在此写明归属，
@@ -2835,7 +2842,7 @@ extension ChatScreenReActExt on _ChatScreenState {
       // `_continueFromMessage` 要求的"非流式 + 最后一条 + 自己重新登记 _sendSeq"
       // 三条前提都成立了。await 会卡死在 finally 里，unawaited 让它自持终态。
       // build162：这条**只在前台成立**。人在后台时这里想起的那条新流会在几秒内被
-      // 对端关闭（机主 16:45 那份日志：16:40:30.952 出去 → 16:40:37.016
+      // 对端关闭（用户 16:45 那份日志：16:40:30.952 出去 → 16:40:37.016
       // `continue-from failed: Connection closed while receiving data`），所以后台
       // 掉线只攒一笔（arm 已在 catch 里记过额度），起飞交给
       // `_onAppResumedForDropContinue`。前台那一支的行为与 161 完全一致。
@@ -3481,7 +3488,7 @@ bool isTransportRetryableError(Object e) {
   // 那是把**网络签名当成"谁按了停止"的代答** —— 与 `catch` 里那次同一个错前提
   // （`classifyStreamEnd` 修的就是它），后果是这一类掉线**永远不走自动重试**。
   // 行为这里**故意先不改**：一轮已经收了 700 个 chunk 时自动重跑就是再付一次钱，
-  // 值不值由机主定（他说 07:19:55 那次是他自己测后台）。
+  // 值不值由用户定（他说 07:19:55 那次是他自己测后台）。
   // 想让它自动重试：删掉下面那个 `return false;` 即可 —— 再往下 `Network error`
   // 那一条本来就会把这类判成可重试。删之前请把这句注释一起更新，别留第二处假前提。
   if (s.contains('已停止')) return false;
