@@ -1,4 +1,5 @@
 {
+  "dataVersion": "2026.09.28",
   "version": "1.7.32",
   "description": "Nexus API 模板远程更新源。按模板 id 覆盖内置服务商，全新服务商自动追加，更新此文件无需发布 App。",
   "templates": [

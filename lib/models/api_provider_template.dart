@@ -1261,6 +1261,25 @@ const _all = <ApiProviderTemplate>[
   ),
 ];
 
+/// S1（build172）：一条「远程载荷要改写内置厂商 baseUrl」的检出记录。
+///
+/// 钓鱼形状：merge 后界面上仍显示内置的 `nameZh`（如 OpenAI），但请求会发往
+/// 远程给的地址——用户看到的厂商名和实际收数据的不是同一家。这类改写从
+/// 静默应用改为**必须用户逐条确认**（闸门在 DataPackService 的 pending 流程里）。
+class TemplateBaseUrlOverride {
+  final String id;
+  final String nameZh;
+  final String builtinBaseUrl;
+  final String remoteBaseUrl;
+
+  const TemplateBaseUrlOverride({
+    required this.id,
+    required this.nameZh,
+    required this.builtinBaseUrl,
+    required this.remoteBaseUrl,
+  });
+}
+
 /// v1.7.24 (#7)：API 模板目录 —— 内置默认 + 远程 JSON 更新。
 ///
 /// 远程 JSON 格式（二选一）：
@@ -1277,6 +1296,11 @@ class ApiProviderTemplateCatalog {
 
   /// 远程模板（按 id 索引），初始为空。
   Map<String, ApiProviderTemplate> _remote = {};
+
+  /// S1（build172）：内置清单的只读视图。
+  /// 数据包闸门（DataPackService）在应用前拿它与远程载荷跑 [detectBaseUrlOverrides]。
+  static List<ApiProviderTemplate> get builtinTemplates =>
+      ApiProviderTemplate.all;
 
   /// 测试钩子：清空远程模板与合并缓存。
   ///
@@ -1394,6 +1418,43 @@ class ApiProviderTemplateCatalog {
     out.addAll(pending.values);
     return out;
   }
+
+  /// S1（build172）：检出「远程载荷改写内置厂商 baseUrl」的条目（纯函数，可单测）。
+  ///
+  /// 口径：
+  ///  - 按 id 匹配（两侧 id 都以 trim 后非空为准）；remote 新增 id（builtin 没有）
+  ///    **不算**改写——「只增不删」的既有设计；
+  ///  - remote.baseUrl 为空（= 未提供）不算；
+  ///  - remote.baseUrl trim 后与内置相同不算；其余一律算改写。
+  static List<TemplateBaseUrlOverride> detectBaseUrlOverrides(
+    List<ApiProviderTemplate> builtin,
+    List<ApiProviderTemplate> remote,
+  ) {
+    final byId = <String, ApiProviderTemplate>{
+      for (final r in remote)
+        if (r.id.trim().isNotEmpty) r.id.trim(): r,
+    };
+    final out = <TemplateBaseUrlOverride>[];
+    for (final base in builtin) {
+      final r = byId[base.id];
+      if (r == null) continue;
+      final rb = r.baseUrl.trim();
+      if (rb.isEmpty || rb == base.baseUrl.trim()) continue;
+      out.add(TemplateBaseUrlOverride(
+        id: base.id,
+        nameZh: base.nameZh,
+        builtinBaseUrl: base.baseUrl,
+        remoteBaseUrl: r.baseUrl,
+      ));
+    }
+    return out;
+  }
+
+  /// S1：把一份载荷 JSON 解码成模板列表（只读，不改内存状态）。
+  /// DataPackService 的确认闸在应用前用它跑 [detectBaseUrlOverrides]；
+  /// JSON 非法时抛出，由调用方兜底。
+  List<ApiProviderTemplate> parseTemplatesJson(String rawJson) =>
+      _extractTemplates(jsonDecode(rawJson));
 
   /// 按分组取模板（含远程）。
   List<ApiProviderTemplate> byGroup(ApiProviderGroup g) =>

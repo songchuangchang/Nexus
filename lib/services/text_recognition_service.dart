@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import '../models/chat_message.dart';
 import 'logger_service.dart';
 import 'platform_capabilities.dart';
 import 'package:flutter/foundation.dart';
@@ -32,6 +33,59 @@ class TextRecognitionResult {
 /// Text Recognition 的 Flutter 插件层；日志只记录文件名、字符数、耗时和错误类别。
 class TextRecognitionService {
   static const int maxOcrChars = 12000;
+
+  /// O2-4 口径的「识图不可用」实话（build172 起单一来源）：
+  /// 引擎失败 ≠ 识别到 0 字——失败时必须明确告知模型"你看不到这张图"，
+  /// 不得塞「[未识别到文字]」伪装成识别过了只是没字（会让模型误以为已读图
+  /// 而反复反问）。errorKind 带错误码供真机定位（CJK 模型未下载 / 无 GMS /
+  /// release R8 混淆缺 keep，三种根因全靠它区分）。
+  static String unusableNotice(String? errorKind) =>
+      '[本机图片识别不可用（${errorKind ?? '-'}）——你看不到这张图片的内容，'
+      '请如实告知用户，并建议切换支持视觉的模型或由用户手动描述图片文字]';
+
+  /// build172（照片读取修复）：对图片附件做**入口 OCR**——识别结果写进
+  /// `extractedText`（字段是 final，构造新附件对象原位替换）。
+  ///
+  /// 为什么在入口做：三条发送路径（编排 / ReAct / 直聊）此前只有直聊有 OCR
+  /// 兜底，编排路径的图片永远是占位文本（真机 18:44 带图编排实测）。
+  /// 在分流之前跑一次，编排器既有的「extractedText 非空即正文」分支、
+  /// 直聊/ReAct 的 payload 构造就都能拿到图内文字。
+  ///
+  /// 口径：
+  ///  - 只处理 `type == image` 且有 `localPath` 的附件；非图片原样保留；
+  ///  - `extractedText` 已有正文（重试/续跑）的**跳过**，不重复识别；
+  ///  - 引擎失败（errorKind 非空）→ extractedText 写 [unusableNotice] 实话，
+  ///    **不伪造正文**；识别成功但 0 字 → 写「[未识别到文字]」；
+  ///  - 返回**是否发生了引擎级失败**（上游据此给用户 SnackBar 提示）。
+  ///
+  /// [recognize] 可注入（测试用假实现，不碰 ML Kit 平台通道）。
+  static Future<bool> ensureImagesOcrd(
+    List<MessageAttachment> attachments, {
+    Future<TextRecognitionResult> Function(String path)? recognize,
+  }) async {
+    final impl =
+        recognize ?? (path) => TextRecognitionService().recognizeImagePath(path);
+    var engineFailed = false;
+    for (var i = 0; i < attachments.length; i++) {
+      final a = attachments[i];
+      if (a.type != AttachmentType.image || a.localPath == null) continue;
+      if ((a.extractedText ?? '').trim().isNotEmpty) continue;
+      final r = await impl(a.localPath!);
+      if (!r.isUsable && r.errorKind != null) engineFailed = true;
+      attachments[i] = MessageAttachment(
+        id: a.id,
+        type: a.type,
+        fileName: a.fileName,
+        extractedText: r.isUsable
+            ? r.text
+            : (r.errorKind != null ? unusableNotice(r.errorKind) : '[未识别到文字]'),
+        localPath: a.localPath,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+      );
+    }
+    return engineFailed;
+  }
 
   Future<TextRecognitionResult> recognizeImagePath(String imagePath) async {
     final fileName = p.basename(imagePath);

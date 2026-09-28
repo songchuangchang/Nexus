@@ -1596,6 +1596,9 @@ class AppDownloadService extends ChangeNotifier {
   /// [fileName]：可选的文件名（不提供则从 URL 推断）
   /// [onProgress]：进度回调
   /// [taskId]：可选下载任务 id（用于 cancelDownload 取消；不传则内部生成）
+  /// [sha256Hex]：可选期望 SHA-256（64 位 hex，大小写不敏感）。提供时在下载完成、
+  /// 长度比对通过后实算落盘文件的哈希并比对；不匹配 → 删除文件并抛异常
+  /// （S2 build172：自更新链路 fail-closed 依赖此参数）
   /// 返回完整文件路径 + taskId（result['taskId']）
   ///
   /// v1.5.0 新增：取消机制
@@ -1607,6 +1610,7 @@ class AppDownloadService extends ChangeNotifier {
     String? fileName,
     void Function(int received, int total)? onProgress,
     String? taskId,
+    String? sha256Hex,
   }) async {
     // v1.5.0：生成 taskId 并初始化取消标志
     final effectiveTaskId = taskId ??
@@ -1746,6 +1750,12 @@ class AppDownloadService extends ChangeNotifier {
         } catch (_) {}
         throw Exception('下载不完整（期望 $contentLength 字节，实际 $finalLen 字节）');
       }
+
+      // S2（build172）：调用方给了期望 SHA-256 就在落盘后实算比对；不匹配时
+      // verifyFileSha256 删文件并抛异常 → 走下方统一 catch 记日志后 rethrow，
+      // 与本函数其余失败（HTTP/超限/取消/不完整）同一条语义，失败不静默。
+      await verifyFileSha256(fullPath, sha256Hex);
+
       _logger.info(
           '[Download] Generic download complete: $fullPath (${(finalLen / 1024 / 1024).toStringAsFixed(2)} MB)');
 
@@ -1906,5 +1916,30 @@ class AppDownloadService extends ChangeNotifier {
     final d = Directory(p.join(base.path, subDir));
     if (!await d.exists()) await d.create(recursive: true);
     return d;
+  }
+}
+
+/// S2（build172）：校验落盘文件的 SHA-256；不匹配 → 删除文件并抛 Exception。
+///
+/// 顶层纯函数（只吃路径与期望值，便于单测），供 [AppDownloadService]
+/// 的通用下载器在落盘后调用。[expectedHex] 规则：
+/// - null/空（含纯空白）→ 直接跳过：通用下载语义不变，不因来源缺哈希而拒绝
+///   （自更新链路的 fail-closed 由 AppUpdateService.downloadAndInstall 入口守卫负责）；
+/// - 非 64 位十六进制 → 视为调用方 bug，抛异常拒绝放行（不删文件，由调用方处置）；
+/// - 实算哈希（流式读取，不整文件进内存）与期望值不一致 → 删文件并抛
+///   `SHA-256 校验失败，已删除下载文件`（大小写不敏感，两边统一转小写比较）。
+Future<void> verifyFileSha256(String fullPath, String? expectedHex) async {
+  final expected = (expectedHex ?? '').trim().toLowerCase();
+  if (expected.isEmpty) return;
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(expected)) {
+    throw Exception('期望 SHA-256 格式无效（需 64 位十六进制）');
+  }
+  final actual =
+      (await sha256.bind(File(fullPath).openRead()).first).toString();
+  if (actual != expected) {
+    try {
+      await File(fullPath).delete();
+    } catch (_) {}
+    throw Exception('SHA-256 校验失败，已删除下载文件');
   }
 }

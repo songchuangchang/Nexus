@@ -60,6 +60,33 @@ class _DataPackUpdateScreenState extends State<DataPackUpdateScreen> {
         context, SnackBar(content: Text('${state.name(_isZh)}：${state.describe(_isZh)}')));
   }
 
+  /// S1（build172）：用户对挂起的「baseUrl 改写」载荷点「确认应用」。
+  Future<void> _confirmPending(String id) async {
+    setState(() => _busy = true);
+    final state = await _svc.confirmPending(id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (state == null) return;
+    AppSnackBar.showSnackBar(
+        context, SnackBar(content: Text('${state.name(_isZh)}：${state.describe(_isZh)}')));
+  }
+
+  /// S1：用户点「放弃」——只清挂起，基线不动（下次拉取同载荷仍会再挂起）。
+  Future<void> _discardPending(String id) async {
+    final zh = _isZh;
+    setState(() => _busy = true);
+    final state = await _svc.discardPending(id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (state == null) return;
+    AppSnackBar.showSnackBar(
+        context,
+        SnackBar(
+            content: Text(zh
+                ? '${state.name(zh)}：已放弃待确认载荷，继续使用当前生效数据'
+                : '${state.name(zh)}: pending payload discarded')));
+  }
+
   bool get _isZh =>
       AppLocalizations.of(context).locale.languageCode == 'zh';
 
@@ -167,6 +194,8 @@ class _DataPackUpdateScreenState extends State<DataPackUpdateScreen> {
 
   Widget _packCard(DataPackState s, bool zh) {
     final cs = Theme.of(context).colorScheme;
+    // S1（build172）：该包有挂起的「baseUrl 改写」载荷 ⇒ 卡片内加确认条。
+    final pending = _svc.pendingOf(s.id);
     return Padding(
       padding: const EdgeInsets.only(bottom: AppGap.md),
       child: AppSectionCard(
@@ -180,8 +209,8 @@ class _DataPackUpdateScreenState extends State<DataPackUpdateScreen> {
               children: [
                 Text(
                   zh
-                      ? '内置版本 ${s.builtinDataVersion}　当前版本 ${s.remoteDataVersion ?? '—'}'
-                      : 'Built-in ${s.builtinDataVersion}　Current ${s.remoteDataVersion ?? '-'}',
+                      ? '当前版本 ${s.remoteDataVersion ?? '—'}'
+                      : 'Current ${s.remoteDataVersion ?? '-'}',
                   style: const TextStyle(fontSize: 12),
                 ),
                 Text(
@@ -224,6 +253,64 @@ class _DataPackUpdateScreenState extends State<DataPackUpdateScreen> {
                 ),
               ],
             ),
+          ),
+          if (pending != null) _pendingBanner(pending, zh, cs),
+        ],
+      ),
+    );
+  }
+
+  /// S1（build172）：apiTemplates 包检出「远程改写内置厂商 baseUrl」时的
+  /// 二次确认条。逐条列出 id / 显示名与新旧地址；确认才应用，放弃则本轮不用
+  /// （下次拉到同一份载荷仍会再挂起，直到用户处理——有意为之）。
+  Widget _pendingBanner(
+      DataPackPendingConfirmation pending, bool zh, ColorScheme cs) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppGap.sm),
+      decoration: BoxDecoration(
+        color: cs.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            zh
+                ? '需要确认：远程包要把 ${pending.overrides.length} 个内置厂商的'
+                    '请求地址改成下列地址。逐条核对后才会应用；不确认则继续用现地址。'
+                : 'Confirmation required: the remote pack wants to change the '
+                    'request URLs of ${pending.overrides.length} built-in '
+                    'providers to the addresses below. Nothing is applied '
+                    'until you verify and confirm.',
+            style: TextStyle(fontSize: 12, color: cs.onErrorContainer),
+          ),
+          for (final o in pending.overrides)
+            Padding(
+              padding: const EdgeInsets.only(top: AppGap.xs),
+              child: Text(
+                '${o.id} · ${o.nameZh}\n'
+                '${zh ? '现地址' : 'current'} ${o.builtinBaseUrl}\n'
+                '${zh ? '改为' : 'new'} ${o.remoteBaseUrl}',
+                style: TextStyle(fontSize: 11, color: cs.onErrorContainer),
+              ),
+            ),
+          const SizedBox(height: AppGap.sm),
+          Wrap(
+            spacing: AppGap.sm,
+            runSpacing: AppGap.sm,
+            children: [
+              FilledButton(
+                onPressed: _busy ? null : () => _confirmPending(pending.packId),
+                child: Text(zh
+                    ? '确认应用（我已核对这些地址）'
+                    : 'Apply (I verified these URLs)'),
+              ),
+              OutlinedButton(
+                onPressed: _busy ? null : () => _discardPending(pending.packId),
+                child: Text(zh ? '放弃' : 'Discard'),
+              ),
+            ],
           ),
         ],
       ),

@@ -26,6 +26,7 @@ import '../constants.dart';
 import '../models/api_provider_template.dart';
 import '../models/mcp_catalog.dart';
 import 'builtin_prompt_catalog.dart';
+import 'data_pack_baseline.dart';
 import 'data_pack_pref_keys.dart';
 import 'data_pack_protocol.dart';
 import 'github_content_fetcher.dart';
@@ -33,6 +34,7 @@ import 'logger_service.dart';
 
 export 'data_pack_pref_keys.dart' show DataPackPrefKeys;
 export 'data_pack_protocol.dart';
+export '../models/api_provider_template.dart' show TemplateBaseUrlOverride;
 
 /// 取一个 URL 的抽象（生产 = GitHubContentFetcher 自适应候选链）。
 typedef DataPackFetcher = Future<String> Function(String url);
@@ -56,7 +58,6 @@ class DataPackSpec {
     required this.updatedKey,
     required this.retryKey,
     required this.defaultSources,
-    required this.builtinDataVersion,
     required this.applyPayload,
     required this.clearApplied,
     required this.countItems,
@@ -78,9 +79,6 @@ class DataPackSpec {
 
   /// 内置默认源（有序：主 → 备）。用户自定义源非空时优先用户配置。
   final List<String> defaultSources;
-
-  /// 内置数据版本（远程包必须**严格大于**它才会被应用）。
-  final String builtinDataVersion;
 
   /// 把校验通过的原始 JSON 应用进对应 catalog（内存生效）。
   final Future<bool> Function(String rawJson) applyPayload;
@@ -109,12 +107,18 @@ class _Pack {
   /// 本次生效的远程数据是从本地缓存读出来的（陈旧判定用）。
   bool loadedFromCache = false;
 
+  // S1（build172）：apiTemplates 包「改写内置厂商 baseUrl」的二次确认挂起现场。
+  // 非 apiTemplates 包恒为空；pendingRaw != null ⇒ 有载荷正等用户确认。
+  String? pendingRaw;
+  String? pendingDataVersion;
+  int pendingItemCount = 0;
+  List<TemplateBaseUrlOverride> pendingOverrides = const [];
+
   DataPackState snapshot() => DataPackState(
         id: spec.id,
         nameZh: spec.nameZh,
         nameEn: spec.nameEn,
         sourceUrls: List.unmodifiable(sources),
-        builtinDataVersion: spec.builtinDataVersion,
         status: status,
         reject: reject,
         detail: detail,
@@ -123,6 +127,40 @@ class _Pack {
         appliedCount: appliedCount,
         hasRemoteData: hasRemoteData,
       );
+}
+
+/// 一次「已过版本闸门的载荷」进 catalog 的结果（S1 确认闸引入）。
+enum _PackApplyOutcome {
+  /// 已真正应用进 catalog（缓存重放 / 远程刷新两条路径共用）。
+  applied,
+
+  /// apiTemplates 包检出「改写内置厂商 baseUrl」⇒ 挂起待用户确认，本轮不应用。
+  pended,
+
+  /// applyPayload 返回 false（载荷解析失败等），按既有语义记账。
+  failed,
+}
+
+/// S1（build172）：一个包当前挂起的「待二次确认」载荷快照（目前只有
+/// apiTemplates 包会出现；UI 从 [DataPackService.pendingOf] 读它）。
+class DataPackPendingConfirmation {
+  const DataPackPendingConfirmation({
+    required this.packId,
+    required this.rawJson,
+    required this.dataVersion,
+    required this.itemCount,
+    required this.overrides,
+  });
+
+  final String packId;
+
+  /// 挂起的原始载荷（确认时原样应用的就是这份字节）。
+  final String rawJson;
+  final String dataVersion;
+  final int itemCount;
+
+  /// 检出改写的内置厂商清单（id / 显示名 / 内置地址 → 远程地址）。
+  final List<TemplateBaseUrlOverride> overrides;
 }
 
 /// 数据/资源包统一服务（G54/G55/G56 的唯一实现点）。
@@ -192,6 +230,10 @@ class DataPackService extends ChangeNotifier {
       p.appliedCount = 0;
       p.hasRemoteData = false;
       p.loadedFromCache = false;
+      p.pendingRaw = null;
+      p.pendingDataVersion = null;
+      p.pendingItemCount = 0;
+      p.pendingOverrides = const [];
     }
   }
 
@@ -214,20 +256,21 @@ class DataPackService extends ChangeNotifier {
       if (cachedRaw != null && cachedRaw.isNotEmpty) {
         final check = evaluateDataPackPayload(
           rawJson: cachedRaw,
-          builtinDataVersion: p.spec.builtinDataVersion,
+          baselineVersion: await readAppliedBaseline(p.spec.id),
           appVersion: _appVersion,
           itemCountOf: p.spec.countItems,
         );
-        var applied = false;
+        var outcome = _PackApplyOutcome.failed;
         if (check.accepted) {
           try {
-            applied = await p.spec.applyPayload(cachedRaw);
+            outcome = await _applyPackPayload(p, cachedRaw, check, prefs);
           } catch (e) {
             _logger.warn('${p.spec.id} 应用缓存异常: $e',
                 tag: 'DataPack');
           }
         }
-        if (applied && check.dataVersion != null) {
+        if (outcome == _PackApplyOutcome.applied &&
+            check.dataVersion != null) {
           p.status = DataPackStatus.updated;
           p.reject = DataPackReject.none;
           p.detail = '';
@@ -236,9 +279,17 @@ class DataPackService extends ChangeNotifier {
           p.lastUpdatedAt = cachedAt;
           p.hasRemoteData = true;
           p.loadedFromCache = true;
+          // X11：缓存重放同样计入基线（幂等；升级首启时把旧版基线补齐）
+          await writeAppliedBaseline(p.spec.id, check.dataVersion!);
+        } else if (outcome == _PackApplyOutcome.pended) {
+          // S1：缓存里的载荷因「改写内置厂商 baseUrl」挂起待确认 ——
+          // 不应用也**不清**：缓存与基线都留着，等用户在数据包页处理。
+          p.status = DataPackStatus.builtin;
+          p.reject = DataPackReject.none;
+          p.detail = '';
         } else {
           // 旧代码写的缓存 / 被版本或校验挡下的缓存 → 丢弃，回落内置。
-          // （内置随 App 版本更新，一定比这份缓存新；留着它才是污染。）
+          // （基线随应用推进，比基线旧的缓存留着只会挡住下次更新。）
           await p.spec.clearApplied(prefs);
           p.status = DataPackStatus.builtin;
           p.reject = check.reject;
@@ -249,6 +300,8 @@ class DataPackService extends ChangeNotifier {
               tag: 'DataPack');
         }
       }
+      // S1：恢复上次挂起的「待确认」现场（重启后界面还能看到确认条）。
+      await _restorePending(p, prefs);
       // build145：`retryKey` 是**粘性的**（只有成功才清）⇒ 对「仓库私有 / 长期离线」的设备，
       // 旧写法等于每次冷启动都把 3 个包 × 2 个源 × 5~6 个候选 ≈ 数十个注定失败的请求重跑一遍。
       // 真机 13:16 那份导出实证：43 秒 109 行日志里 62 行（57%）是它，还带一条 ERROR。
@@ -422,7 +475,7 @@ class DataPackService extends ChangeNotifier {
 
       final check = evaluateDataPackPayload(
         rawJson: body,
-        builtinDataVersion: p.spec.builtinDataVersion,
+        baselineVersion: await readAppliedBaseline(p.spec.id),
         appVersion: _appVersion,
         itemCountOf: p.spec.countItems,
       );
@@ -439,7 +492,18 @@ class DataPackService extends ChangeNotifier {
 
       bool applied;
       try {
-        applied = await p.spec.applyPayload(body);
+        final outcome = await _applyPackPayload(p, body, check, prefs);
+        if (outcome == _PackApplyOutcome.pended) {
+          // S1：载荷检出「改写内置厂商 baseUrl」，挂起等用户二次确认。
+          // 这不是拉取失败：不落缓存、不计退避、也不再试下一个源
+          // （换源等于换一份没人核对过的载荷，它同样要过这道闸）。
+          p.status = DataPackStatus.builtin;
+          p.reject = DataPackReject.none;
+          p.detail = '';
+          notifyListeners();
+          return p.snapshot();
+        }
+        applied = outcome == _PackApplyOutcome.applied;
       } catch (e, st) {
         _logger.error('${p.spec.id} 应用异常',
             error: e, stack: st, tag: 'DataPack');
@@ -457,6 +521,11 @@ class DataPackService extends ChangeNotifier {
       await prefs.setString(p.spec.jsonKey, body);
       await prefs.setString(p.spec.updatedKey, now.toIso8601String());
       await prefs.setBool(p.spec.retryKey, false);
+      // X11：应用成功才落「上次已应用的 dataVersion」基线——
+      // 失败/拒绝绝不落（否则一次坏载荷把自己的版本钉进基线，挡住后面的正确版本）。
+      if (check.dataVersion != null) {
+        await writeAppliedBaseline(p.spec.id, check.dataVersion!);
+      }
       // 成功一次就把退避现场清掉（否则下一次偶发失败会从很久的倍数开始算）
       await prefs.remove(_retryStampKey(p.spec.retryKey));
       await afterApplied(p.spec.id, now);
@@ -551,6 +620,198 @@ class DataPackService extends ChangeNotifier {
     }
   }
 
+  // ==================================================================
+  // S1（build172）：apiTemplates 包「改写内置厂商 baseUrl」的二次确认闸
+  // ==================================================================
+
+  /// 某包当前挂起的「待二次确认」载荷（只有 apiTemplates 包会出现）。
+  /// UI（数据包更新页）从这里读警示条内容；null = 没有待确认载荷。
+  DataPackPendingConfirmation? pendingOf(String id) {
+    final p = _find(id);
+    if (p == null || p.pendingRaw == null) return null;
+    return DataPackPendingConfirmation(
+      packId: p.spec.id,
+      rawJson: p.pendingRaw!,
+      dataVersion: p.pendingDataVersion ?? '',
+      itemCount: p.pendingItemCount,
+      overrides: p.pendingOverrides,
+    );
+  }
+
+  /// 用户点「确认应用」：复核闸门 → 真正应用 → 落缓存/基线/确认指纹 → 清 pending。
+  /// 复核不过（挂起期间基线被推进等）⇒ 作废 pending 并如实记日志。
+  Future<DataPackState?> confirmPending(String id) async {
+    final p = _find(id);
+    if (p == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw =
+        p.pendingRaw ?? prefs.getString(DataPackPrefKeys.apiTemplatePendingRaw) ?? '';
+    if (raw.isEmpty) return p.snapshot();
+    // 确认前再过一次完整闸门：挂起期间基线可能已被别的路径推进，
+    // 绝不借「用户点了确认」绕过版本/校验闸。
+    final check = evaluateDataPackPayload(
+      rawJson: raw,
+      baselineVersion: await readAppliedBaseline(p.spec.id),
+      appVersion: _appVersion,
+      itemCountOf: p.spec.countItems,
+    );
+    if (!check.accepted) {
+      await _clearPending(p, prefs);
+      _logger.warn(
+          '${p.spec.id} 待确认载荷复核未过闸'
+          '（${describeDataPackReject(check.reject, detail: check.detail)}），已作废',
+          tag: 'DataPack');
+      notifyListeners();
+      return p.snapshot();
+    }
+    bool applied = false;
+    try {
+      applied = await p.spec.applyPayload(raw);
+    } catch (e, st) {
+      _logger.error('${p.spec.id} 确认后应用异常',
+          error: e, stack: st, tag: 'DataPack');
+    }
+    if (!applied) {
+      _logger.warn('${p.spec.id} 待确认载荷应用失败，保留挂起状态', tag: 'DataPack');
+      return p.snapshot();
+    }
+    final now = DateTime.now();
+    await prefs.setString(p.spec.jsonKey, raw);
+    await prefs.setString(p.spec.updatedKey, now.toIso8601String());
+    await prefs.setBool(p.spec.retryKey, false);
+    await prefs.remove(_retryStampKey(p.spec.retryKey));
+    // S1：把「用户确认过的字节」记成指纹——此后同内容重放不再进确认闸，
+    // 远程同版本换内容（指纹对不上）仍会照常检出。
+    await prefs.setString(
+        DataPackPrefKeys.apiTemplateConfirmedSha, sha256HexOf(raw));
+    if (check.dataVersion != null) {
+      await writeAppliedBaseline(p.spec.id, check.dataVersion!);
+    }
+    await _clearPending(p, prefs);
+    await afterApplied(p.spec.id, now);
+    p.status = DataPackStatus.updated;
+    p.reject = DataPackReject.none;
+    p.detail = '';
+    p.remoteDataVersion = check.dataVersion;
+    p.appliedCount = check.itemCount;
+    p.lastUpdatedAt = now;
+    p.hasRemoteData = true;
+    p.loadedFromCache = false;
+    _logger.info(
+        '${p.spec.id} 用户确认后应用 ${check.dataVersion}（${check.itemCount} 条）',
+        tag: 'DataPack');
+    notifyListeners();
+    return p.snapshot();
+  }
+
+  /// 用户点「放弃」：只清 pending，**基线不动**。
+  /// 有意为之：下次拉到同一份载荷仍会再进 pending，直到用户处理。
+  Future<DataPackState?> discardPending(String id) async {
+    final p = _find(id);
+    if (p == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    await _clearPending(p, prefs);
+    _logger.info('${p.spec.id} 已放弃待确认载荷（基线保留，下次拉取仍会再挂起）',
+        tag: 'DataPack');
+    notifyListeners();
+    return p.snapshot();
+  }
+
+  /// 统一的应用入口：两条应用路径（启动缓存重放 / 远程刷新）都走这里。
+  /// apiTemplates 包在应用前先跑 [detectBaseUrlOverrides]：检出改写 ⇒
+  /// 不应用、挂 pending、返回 [ _PackApplyOutcome.pended]；
+  /// 用户在数据包页确认后经 [confirmPending] 真正应用。
+  Future<_PackApplyOutcome> _applyPackPayload(
+    _Pack p,
+    String rawJson,
+    DataPackCheckResult check,
+    SharedPreferences prefs,
+  ) async {
+    if (p.spec.id == packApiTemplates &&
+        !_isConfirmedTemplateBody(rawJson, prefs)) {
+      final overrides = _detectTemplateOverrides(rawJson);
+      if (overrides.isNotEmpty) {
+        await _storePending(p, rawJson, check, overrides, prefs);
+        _logger.warn(
+            '${p.spec.id} 检出 ${overrides.length} 处内置厂商 baseUrl 改写'
+            '（${overrides.map((o) => o.id).join('、')}），'
+            '已挂起待用户确认，本轮不应用',
+            tag: 'DataPack');
+        return _PackApplyOutcome.pended;
+      }
+    }
+    final ok = await p.spec.applyPayload(rawJson);
+    return ok ? _PackApplyOutcome.applied : _PackApplyOutcome.failed;
+  }
+
+  /// 这份载荷是否就是用户**已确认过**的那一份（S1 幂等重放）：
+  /// 确认时把 body 的 sha256 记进 prefs；命中 ⇒ 缓存重放/再拉取不再进确认闸
+  /// （否则用户确认一次、之后每次启动又被挂起一次）。
+  /// 远程同版本换内容（指纹对不上）⇒ 照常检出——确认只对确认过的字节生效。
+  bool _isConfirmedTemplateBody(String rawJson, SharedPreferences prefs) =>
+      prefs.getString(DataPackPrefKeys.apiTemplateConfirmedSha) ==
+      sha256HexOf(rawJson);
+
+  /// 解码载荷并检出「远程改写内置厂商 baseUrl」的条目。
+  /// 解码失败按「无改写」处理——坏载荷会在随后的 applyPayload 里如实失败。
+  List<TemplateBaseUrlOverride> _detectTemplateOverrides(String rawJson) {
+    try {
+      final templates =
+          ApiProviderTemplateCatalog.instance.parseTemplatesJson(rawJson);
+      return ApiProviderTemplateCatalog.detectBaseUrlOverrides(
+        ApiProviderTemplateCatalog.builtinTemplates,
+        templates,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _storePending(
+    _Pack p,
+    String rawJson,
+    DataPackCheckResult check,
+    List<TemplateBaseUrlOverride> overrides,
+    SharedPreferences prefs,
+  ) async {
+    p.pendingRaw = rawJson;
+    p.pendingDataVersion = check.dataVersion;
+    p.pendingItemCount = check.itemCount;
+    p.pendingOverrides = List.unmodifiable(overrides);
+    await prefs.setString(DataPackPrefKeys.apiTemplatePendingRaw, rawJson);
+  }
+
+  /// 启动时从 prefs 恢复挂起现场；内置清单随 App 升级变化后，旧挂起可能
+  /// 不再构成改写 ⇒ 自动失效（重跑检出，检不出就清）。
+  Future<void> _restorePending(_Pack p, SharedPreferences prefs) async {
+    if (p.spec.id != packApiTemplates) return;
+    final raw = prefs.getString(DataPackPrefKeys.apiTemplatePendingRaw);
+    if (raw == null || raw.isEmpty) return;
+    final overrides = _detectTemplateOverrides(raw);
+    if (overrides.isEmpty) {
+      await _clearPending(p, prefs);
+      return;
+    }
+    final check = evaluateDataPackPayload(
+      rawJson: raw,
+      baselineVersion: await readAppliedBaseline(p.spec.id),
+      appVersion: _appVersion,
+      itemCountOf: p.spec.countItems,
+    );
+    p.pendingRaw = raw;
+    p.pendingDataVersion = check.dataVersion;
+    p.pendingItemCount = check.itemCount;
+    p.pendingOverrides = List.unmodifiable(overrides);
+  }
+
+  Future<void> _clearPending(_Pack p, SharedPreferences prefs) async {
+    p.pendingRaw = null;
+    p.pendingDataVersion = null;
+    p.pendingItemCount = 0;
+    p.pendingOverrides = const [];
+    await prefs.remove(DataPackPrefKeys.apiTemplatePendingRaw);
+  }
+
   static String _clampDetail(String s) =>
       s.length <= 600 ? s : '${s.substring(0, 600)}…';
 
@@ -562,10 +823,11 @@ class DataPackService extends ChangeNotifier {
     // build171：两个源前缀与"镜像优先、raw 兜底"的顺序都住在 `repo_endpoints.dart`。
     // 以前这两行是写死的**私有仓库**地址 ⇒ 对所有人永远 404/403（G54–G56 的立项事实），
     // 这个服务从上线起就没真取到过远端数据包；迁到公开的 Nexus 之后才第一次取得到。
-    // 内置数据随 App 一起发布 ⇒ 内置版本就是 App 版本（注入的 appVersion
-    // 只影响闸门基准，测试里可造低/高版本场景）。
-    final builtinVersion = appVersion;
-
+    //
+    // X11（build172）：不再有「内置数据版本 = App 版本」这个闸门基准——基准改为
+    // 每包持久化的「上次已应用的 dataVersion」（data_pack_baseline.dart）。
+    // 旧基准下载荷停在 1.7.32/1.7.37、App 已到 1.7.114 ⇒ 每个用户恒判旧、热更从未生效。
+    // [appVersion] 仍要传：只喂 minAppVersion 闸。
     List<String> sourcesOf(String file) => repoFileSources(file);
 
     return [
@@ -580,11 +842,12 @@ class DataPackService extends ChangeNotifier {
         updatedKey: DataPackPrefKeys.apiTemplateUpdatedAt,
         retryKey: DataPackPrefKeys.apiTemplateRetryPending,
         defaultSources: sourcesOf('api_templates.json'),
-        builtinDataVersion: builtinVersion,
         applyPayload: (raw) async =>
             ApiProviderTemplateCatalog.instance.applyJson(raw),
         clearApplied: (prefs) async {
           ApiProviderTemplateCatalog.instance.clearRemotePayload();
+          // X11：用户放弃/清除远程载荷 ⇒ 基线一并清，下次拉取视为首用。
+          await clearAppliedBaseline(packApiTemplates);
           await prefs.remove(DataPackPrefKeys.apiTemplateJson);
         },
         countItems: countTemplateItems,
@@ -600,10 +863,12 @@ class DataPackService extends ChangeNotifier {
         updatedKey: DataPackPrefKeys.promptsUpdatedAt,
         retryKey: DataPackPrefKeys.promptsRetryPending,
         defaultSources: sourcesOf('builtin_prompts.json'),
-        builtinDataVersion: builtinVersion,
         applyPayload: (raw) async => BuiltinPromptCatalog.instance.applyJson(raw),
-        clearApplied: (prefs) async =>
-            BuiltinPromptCatalog.instance.discardRemoteCache(prefs),
+        clearApplied: (prefs) async {
+          await BuiltinPromptCatalog.instance.discardRemoteCache(prefs);
+          // X11：同上——清载荷必须连基线一起清。
+          await clearAppliedBaseline(packBuiltinPrompts);
+        },
         countItems: countPromptItems,
       ),
       DataPackSpec(
@@ -617,9 +882,12 @@ class DataPackService extends ChangeNotifier {
         updatedKey: DataPackPrefKeys.mcpUpdatedAt,
         retryKey: DataPackPrefKeys.mcpRetryPending,
         defaultSources: sourcesOf('mcp_catalog.json'),
-        builtinDataVersion: builtinVersion,
         applyPayload: (raw) async => McpCatalog.applyRemotePayload(raw),
-        clearApplied: (prefs) async => McpCatalog.clearRemotePayload(prefs),
+        clearApplied: (prefs) async {
+          await McpCatalog.clearRemotePayload(prefs);
+          // X11：同上——清载荷必须连基线一起清。
+          await clearAppliedBaseline(packMcpCatalog);
+        },
         countItems: countMcpItems,
       ),
     ];

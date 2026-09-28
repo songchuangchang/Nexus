@@ -585,20 +585,34 @@ class ApiService extends ChangeNotifier {
       }
       if (!config.supportVision) {
         for (final a in imgAtts) {
-          final ocr = ocrResults?[a.id] ??
-              await TextRecognitionService().recognizeImagePath(a.localPath!);
-          // O2-4（build95）：引擎失败（errorKind 非空）≠ 识别到 0 字——
-          // 失败时必须明确告知「你看不到这张图」，不得塞「[未识别到文字]」
-          // 伪装成识别过了只是没字（会让模型误以为已读图而反复反问）。
-          final ocrText = ocr.isUsable
-              ? ocr.text
-              : (ocr.errorKind != null
-                  ? '[本机图片识别不可用（${ocr.errorKind}）——你看不到这张图片的内容，请如实告知用户，并建议切换支持视觉的模型或由用户手动描述图片文字]'
-                  : '[未识别到文字]');
+          // build172（照片读取修复）：入口 OCR（发送分流前，见
+          // TextRecognitionService.ensureImagesOcrd）已把识别结果写进
+          // extractedText——含引擎失败时的实话。这里优先用它；只有入口没跑过
+          // 的（历史消息重放/未经 _sendMessage 的路径）才现场补识别。
+          // 两条来源汇成一个 `ocrText` 再拼一次（单一构造点，不重复字面量）。
+          final pre = (a.extractedText ?? '').trim();
+          final String ocrText;
+          if (pre.isNotEmpty) {
+            ocrText = pre;
+            LoggerService.instance.info(
+                'OCR fallback (from entry): file=${a.fileName}, chars=${pre.length}',
+                tag: 'Api');
+          } else {
+            final ocr = ocrResults?[a.id] ??
+                await TextRecognitionService().recognizeImagePath(a.localPath!);
+            // O2-4（build95）：引擎失败（errorKind 非空）≠「识别到 0 字」——
+            // 失败时必须明确告知「你看不到这张图」，不得塞「[未识别到文字]」
+            // 伪装成识别过了只是没字（会让模型误以为已读图而反复反问）。
+            ocrText = ocr.isUsable
+                ? ocr.text
+                : (ocr.errorKind != null
+                    ? TextRecognitionService.unusableNotice(ocr.errorKind)
+                    : '[未识别到文字]');
+            LoggerService.instance.info(
+                'OCR fallback: file=${a.fileName}, chars=${ocr.charCount}, ms=${ocr.durationMs}, usable=${ocr.isUsable}, err=${ocr.errorKind ?? '-'}',
+                tag: 'Api');
+          }
           textParts.add('📎 ${a.fileName}（本机 OCR）:\n$ocrText');
-          LoggerService.instance.info(
-              'OCR fallback: file=${a.fileName}, chars=${ocr.charCount}, ms=${ocr.durationMs}, usable=${ocr.isUsable}, err=${ocr.errorKind ?? '-'}',
-              tag: 'Api');
         }
       }
       final baseText = textParts.isEmpty

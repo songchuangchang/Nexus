@@ -22,4 +22,14 @@ abstract final class DataPackPrefKeys {
   static const mcpJson = 'mcp_catalog_remote_v1';
   static const mcpUpdatedAt = 'remote_mcp_catalog_updated_at';
   static const mcpRetryPending = 'remote_mcp_catalog_retry_pending';
+
+  // ---- S1（build172）：apiTemplates 包「改写内置厂商 baseUrl」二次确认 ----
+
+  /// 检出改写后**暂存**的原始载荷（用户确认前不进正式缓存、不应用）。
+  static const apiTemplatePendingRaw = 'remote_api_templates_pending_json';
+
+  /// 用户**确认过**的载荷 sha256 指纹：命中 ⇒ 缓存重放/再拉取不再进确认闸
+  /// （否则确认一次、之后每次启动又被挂起一次）；远程同版本换内容对不上指纹，
+  /// 照常重新检出。
+  static const apiTemplateConfirmedSha = 'remote_api_templates_confirmed_sha';
 }

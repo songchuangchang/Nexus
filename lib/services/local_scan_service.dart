@@ -17,7 +17,10 @@ library local_scan_service;
 /// ⚠️ 本地规则扫描仅供参考，不能保证查出所有问题。
 
 import 'dart:convert';
+import '../constants.dart';
 import 'custom_scan_rules.dart';
+import 'data_pack_baseline.dart';
+import 'data_pack_protocol.dart';
 import 'github_content_fetcher.dart';
 import 'logger_service.dart';
 import '../utils/regex_safety.dart';
@@ -101,6 +104,42 @@ class LocalScanRule {
 
   bool appliesTo(LocalScanTarget target) =>
       targets.isEmpty || targets.contains(target);
+}
+
+/// S21（build172）：一次「远程规则载荷」闸门判定 + 解析的结果。
+///
+/// 为什么单独一个类：[_getEffectiveRules] 的生产路径要先过真 HTTP，
+/// 单测钉不住；闸门判定与解析抽成纯入口 [LocalScanService.applyRemoteRulesPayload]
+/// 后，结果（收没收、为什么拒、解析出几条、disableBuiltin/黑名单是什么）都在这里，
+/// 测试与生产共用同一份判定。
+class LocalScanRuleMergeResult {
+  const LocalScanRuleMergeResult({
+    required this.accepted,
+    required this.reject,
+    required this.detail,
+    this.dataVersion,
+    this.rules = const [],
+    this.disableBuiltin = const [],
+    this.blacklistDomains = const {},
+    this.blacklistSha256 = const {},
+  });
+
+  final bool accepted;
+  final DataPackReject reject;
+  final String detail;
+
+  /// 载荷自带的 dataVersion/version（闸门放行后非空；生产路径拿它落基线）。
+  final String? dataVersion;
+
+  /// 解析并过滤后的远程规则（S5 长度闸已在此生效）。
+  final List<LocalScanRule> rules;
+  final List<String> disableBuiltin;
+  final Set<String> blacklistDomains;
+  final Set<String> blacklistSha256;
+
+  static LocalScanRuleMergeResult rejected(DataPackReject r,
+          {String detail = ''}) =>
+      LocalScanRuleMergeResult(accepted: false, reject: r, detail: detail);
 }
 
 /// 本地扫描服务
@@ -437,45 +476,129 @@ class LocalScanService {
         totalTimeout: const Duration(seconds: 20),
         tag: 'scan-rules',
       );
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      final rulesJson = (data['rules'] as List<dynamic>? ?? [])
-          .map((r) => LocalScanRule.fromJson(r as Map<String, dynamic>? ?? {}))
-          .where((r) {
-        if (r.id.isEmpty || r.pattern.isEmpty) return false;
-        if (r.pattern.length > 200) {
-          _logger.warn('远程规则 ${r.id} 正则过长(${r.pattern.length}字符)，已跳过',
-              tag: 'LocalScan');
-          return false;
-        }
-        return true;
-      }).toList();
+      // S21（build172）：远程规则与三份数据包同闸——先过 evaluateDataPackPayload
+      // （JSON 完整性 → sha256 → 版本基线 → minAppVersion → 非空），再解析合并。
+      // 旧实现 fetchText 之后直接 jsonDecode 合并：默认源（jsdelivr 镜像，对全体
+      // 用户默认生效）上的一份恶意 rules.json 可以直接改写整库扫描规则。
+      final merge = applyRemoteRulesPayload(
+        body,
+        baselineVersion: await readAppliedBaseline(_rulesBaselinePackId),
+        appVersion: kAppVersionConst,
+      );
+      if (!merge.accepted) {
+        _logger.warn(
+            '远程规则未过闸门'
+            '（${describeDataPackReject(merge.reject, detail: merge.detail)}），回落内置规则',
+            tag: 'LocalScan');
+        return builtin;
+      }
+      // build98（本地加强③）：黑名单随 rules.json 下发
+      _blacklistDomains = merge.blacklistDomains;
+      _blacklistSha256 = merge.blacklistSha256;
+      _remoteRulesCache = merge.rules;
+      _remoteRulesFetchedAt = DateTime.now();
+      // S21/X11：闸门放行且解析合并成功才落「上次已应用的 dataVersion」基线；
+      // 失败/拒绝绝不落（否则一次坏载荷把自己的版本钉进基线，挡住后面的正确版本）。
+      await writeAppliedBaseline(_rulesBaselinePackId, merge.dataVersion!);
+      _logger.info(
+          '远程规则拉取成功: ${merge.rules.length} 条 (v${merge.dataVersion})',
+          tag: 'LocalScan');
       // build98（P2-7）/build171（S3）：disableBuiltin 的条数上限与受保护名单
       // 都收进 mergeRemoteRules —— 内置那 12 条一律禁不掉，见 _protectedRuleIds。
-      final disableBuiltin = (data['disableBuiltin'] as List<dynamic>? ?? [])
-          .map((e) => e.toString());
-      // build98（本地加强③）：黑名单随 rules.json 下发
-      final bl = data['blacklist'];
-      if (bl is Map) {
-        _blacklistDomains = (bl['domains'] as List<dynamic>? ?? [])
-            .map((e) => e.toString().toLowerCase())
-            .where((e) => e.isNotEmpty)
-            .toSet();
-        _blacklistSha256 = (bl['sha256'] as List<dynamic>? ?? [])
-            .map((e) => e.toString().toLowerCase())
-            .where((e) => e.isNotEmpty)
-            .toSet();
-      }
-      _remoteRulesCache = rulesJson;
-      _remoteRulesFetchedAt = DateTime.now();
-      _logger.info('远程规则拉取成功: ${rulesJson.length} 条 (v${data['version']})',
-          tag: 'LocalScan');
-      return mergeRemoteRules(builtin, rulesJson,
-          disableBuiltin: disableBuiltin);
+      return mergeRemoteRules(builtin, merge.rules,
+          disableBuiltin: merge.disableBuiltin);
     } catch (e) {
       _logger.warn('远程规则拉取异常: $e', tag: 'LocalScan');
     }
     _logger.warn('远程规则拉取失败，回落内置规则', tag: 'LocalScan');
     return builtin;
+  }
+
+  /// S21：rules.json 在基线账本里的包 id（与三个 DataPack 的 id 同一命名空间，
+  /// 但它不进 DataPackService——扫描规则的拉取节奏仍由本服务自己的 10 分钟 TTL 管）。
+  static const String _rulesBaselinePackId = 'rules';
+
+  /// S21（build172）：远程规则载荷的一站式判定与解析（纯同步，可单测）。
+  ///
+  /// 从 [_getEffectiveRules] 的「body → 闸门 → 解析」逐字拆出：生产路径拉到
+  /// body 后调用它；基线读写留在调用方（IO），这里只做纯判定。
+  ///
+  /// 闸门口径与 [evaluateDataPackPayload] 一致：基线为空（首次）不做新旧比较；
+  /// 载荷严格更旧才拒；同版本视为幂等重放放行。[itemCountOf] 只防空包——
+  /// 与下方解析过滤同口径（id/pattern 非空；超长正则由解析层跳过，这里不重复
+  /// 计长），不要求与过滤后条数逐条一致，≥1 即放行。
+  static LocalScanRuleMergeResult applyRemoteRulesPayload(
+    String body, {
+    required String baselineVersion,
+    required String appVersion,
+  }) {
+    final check = evaluateDataPackPayload(
+      rawJson: body,
+      baselineVersion: baselineVersion,
+      appVersion: appVersion,
+      itemCountOf: (d) =>
+          d is Map && d['rules'] is List
+              ? (d['rules'] as List)
+                  .whereType<Map>()
+                  .where((r) =>
+                      (r['id']?.toString().trim() ?? '').isNotEmpty &&
+                      (r['pattern']?.toString().trim() ?? '').isNotEmpty)
+                  .length
+              : 0,
+    );
+    if (!check.accepted) {
+      return LocalScanRuleMergeResult.rejected(check.reject,
+          detail: check.detail);
+    }
+    final Object? data;
+    try {
+      data = jsonDecode(body);
+    } catch (e) {
+      return LocalScanRuleMergeResult.rejected(DataPackReject.invalidJson,
+          detail: 'JSON 解析失败: $e');
+    }
+    if (data is! Map) {
+      return LocalScanRuleMergeResult.rejected(DataPackReject.emptyPayload,
+          detail: '顶层不是对象，读不到 rules');
+    }
+    final rulesJson = (data['rules'] as List<dynamic>? ?? [])
+        .map((r) => LocalScanRule.fromJson(r as Map<String, dynamic>? ?? {}))
+        .where((r) {
+      if (r.id.isEmpty || r.pattern.isEmpty) return false;
+      if (r.pattern.length > 200) {
+        // S5 回归锚点（build98 原样保留）：超长正则一律跳过，防 ReDoS/内存放大。
+        _logger.warn('远程规则 ${r.id} 正则过长(${r.pattern.length}字符)，已跳过',
+            tag: 'LocalScan');
+        return false;
+      }
+      return true;
+    }).toList();
+    final disableBuiltin = (data['disableBuiltin'] as List<dynamic>? ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final bl = data['blacklist'];
+    var blDomains = const <String>{};
+    var blSha = const <String>{};
+    if (bl is Map) {
+      blDomains = (bl['domains'] as List<dynamic>? ?? [])
+          .map((e) => e.toString().toLowerCase())
+          .where((e) => e.isNotEmpty)
+          .toSet();
+      blSha = (bl['sha256'] as List<dynamic>? ?? [])
+          .map((e) => e.toString().toLowerCase())
+          .where((e) => e.isNotEmpty)
+          .toSet();
+    }
+    return LocalScanRuleMergeResult(
+      accepted: true,
+      reject: DataPackReject.none,
+      detail: '',
+      dataVersion: check.dataVersion,
+      rules: rulesJson,
+      disableBuiltin: disableBuiltin,
+      blacklistDomains: blDomains,
+      blacklistSha256: blSha,
+    );
   }
 
   // build98（P2-7）→ build171（S3）：核心安全规则不允许被远程 rules.json 禁用。

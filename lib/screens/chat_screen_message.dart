@@ -232,6 +232,42 @@ extension ChatScreenMessageExt on _ChatScreenState {
     final apiSvc = context.read<ApiService>();
     final registry = context.read<PluginRegistry>();
 
+    // ===== build172（照片读取修复）：图片附件**入口 OCR**，三条分流（编排 /
+    // ReAct / 直聊）之前统一跑 =====
+    //
+    // 三条路径此前只有直聊有 OCR 兜底——编排路径的 `_call` 只发文本，图片永远
+    // 是占位文本（真机 28 日 18:44 带图编排实测；build171 的"说实话"只解决
+    // "模型不猜"，没解决"读到"）。在分流之前把识别结果写进附件的 extractedText：
+    //  · 编排器既有的「extractedText 非空即正文」分支自动带上（无需改编排器）；
+    //  · 直聊/ReAct 的 `_buildMessagesPayload` 优先读 extractedText（视觉模型
+    //    仍发原图，不受影响）；
+    //  · 引擎失败写 O2-4 口径的实话（不伪造正文），并 SnackBar 明示。
+    // 代价：视觉模型也会多跑一次本机 OCR（数百毫秒、不出网）——换三条路径
+    // 行为一致，值得。重试/续跑经 extractedText 非空跳过，不重复识别。
+    // 放在探活之前：OCR 是本地操作，与上游健康无关；失败也应让用户尽早看到。
+    if (userMsg.attachments
+        .any((a) => a.type == AttachmentType.image && a.localPath != null)) {
+      final entryOcrEngineFailed =
+          await TextRecognitionService.ensureImagesOcrd(userMsg.attachments);
+      if (!mounted) return;
+      if (entryOcrEngineFailed) {
+        AppSnackBar.showSnackBar(
+          context,
+          SnackBar(
+            content: Text(l.locale.languageCode == 'zh'
+                ? '⚠️ 本机图片识别不可用，当前模型看不到图片内容；可切换支持视觉的模型，或手动输入图中文字'
+                : '⚠️ On-device OCR unavailable — the model cannot see the image. Switch to a vision model or type the text manually.'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      _logger.info(
+          '[Chat] 入口 OCR 完成：图片 ${userMsg.attachments.where((a) => a.type == AttachmentType.image).length} 张，'
+          'engineFailed=$entryOcrEngineFailed',
+          cat: LogCat.chat,
+          tag: 'Chat');
+    }
+
     final now = DateTime.now();
     final cacheValid = _lastApiTestTime != null &&
         _lastApiTestOk &&
@@ -658,41 +694,13 @@ extension ChatScreenMessageExt on _ChatScreenState {
     final imageAttachments = requestUser.attachments
         .where((a) => a.type == AttachmentType.image)
         .toList();
-    final ocrResults = <String, TextRecognitionResult>{};
-    if (!apiConfig.supportVision) {
-      final ocrService = TextRecognitionService();
-      for (final attachment in imageAttachments) {
-        final path = attachment.localPath;
-        if (path == null) continue;
-        ocrResults[attachment.id] = await ocrService.recognizeImagePath(path);
-      }
-      if (!mounted) return;
-      // O2-4（build95）：本机 OCR 引擎失败（非「识别到 0 字」）→ UI 明确提示，
-      // 不伪装成「识别过了但没字」。
-      final engineFailed =
-          ocrResults.values.any((r) => !r.isUsable && r.errorKind != null);
-      if (engineFailed) {
-        final isZhNow = l.locale.languageCode == 'zh';
-        AppSnackBar.showSnackBar(
-          context,
-          SnackBar(
-            content: Text(isZhNow
-                ? '⚠️ 本机图片识别不可用，当前模型看不到图片内容；可切换支持视觉的模型，或手动输入图中文字'
-                : '⚠️ On-device OCR unavailable — the model cannot see the image. Switch to a vision model or type the text manually.'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-    final ocrTextTokens = ocrResults.values.fold<int>(
-      0,
-      (total, result) =>
-          total +
-          ApiServiceTokenEstimate.text(
-            '📎 ${result.fileName}（本机 OCR）：\n'
-            '${result.isUsable ? result.text : '[未识别到文字]'}',
-          ),
-    );
+    // build172（照片读取修复）：OCR 已**上移到发送入口**（ensureImagesOcrd，
+    // 分流之前三条路径统一跑），识别结果在附件的 extractedText 里——
+    // 由 `TokenEstimator.message(requestUser)` 计入 attachmentTokens，此处
+    // 不再重复识别、也不再单独计 token（那会双算）。载荷组装
+    // （_buildMessagesPayload）优先读 extractedText；历史消息里没有入口
+    // 结果的图片仍由它现场补识别（函数内置兜底）。
+    const ocrResults = <String, TextRecognitionResult>{};
     // build168（#99 的另一半）：这里以前把**已经进了发出内容**的四块又算了一遍
     // （`select()` 里 `reserved = … + components.totalTokens`，而 `fixedCost` 又单独
     //  加 `_estimate(stablePrefix)` 与 `currentCost`）⇒ 同一份 token 收两次费，
@@ -706,6 +714,9 @@ extension ChatScreenMessageExt on _ChatScreenState {
     //    `TokenEstimator.message` 逐条加过（token_estimator.dart:63-66）⇒ 删。
     // 留下的两条是**真的没被别处计到**的：图片（`message()` 只看文本，不看图）
     // 与本机 OCR 文本（它经 `ocrResults:` 走请求组装，不在 requestUser/stablePrefix 里）。
+    // build172 备注：OCR 文本已改走 extractedText（计入 attachmentTokens），
+    // ocrTokens 恒 0；字段保留是为不改 ContextBudgetComponents 的形状。
+    const ocrTextTokens = 0;
     final components = ContextBudgetComponents(
       imageTokens: apiConfig.supportVision ? imageAttachments.length : 0,
       ocrTokens: ocrTextTokens,

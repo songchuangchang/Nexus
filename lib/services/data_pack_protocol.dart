@@ -256,9 +256,19 @@ class DataPackCheckResult {
 ///
 /// [itemCountOf] 由每个包自己解释「有多少条有效条目」；返回 0 视为空包拒绝，
 /// 远程永远不能把客户端拉成空数据（G55）。
+///
+/// X11（build172）：版本基准从 `appVersion` 改为**上次已应用的 dataVersion**
+/// （[baselineVersion]，由 `data_pack_baseline.dart` 每包持久化）。
+/// 原基准下四份载荷全部低于 App 版本 ⇒ 热更对每个用户恒判旧、从未生效。
+/// 新语义：
+///  - [baselineVersion] 为空（从未应用）→ 跳过新旧比较，其余闸照过；
+///  - 载荷 dataVersion **严格更旧**才拒绝（防降级重放）；
+///  - **同版本视为幂等重放，照常接受**——规则/模板每轮扫描都会重放拉取，
+///    若同版本也拒，"仍然有效的当前载荷"会从生效集合里凭空消失。
+/// [appVersion] 仍保留，只用于 [minAppVersion] 闸。
 DataPackCheckResult evaluateDataPackPayload({
   required String rawJson,
-  required String builtinDataVersion,
+  required String baselineVersion,
   required String appVersion,
   required int Function(Object? decoded) itemCountOf,
 }) {
@@ -288,12 +298,16 @@ DataPackCheckResult evaluateDataPackPayload({
       : (env['version']?.toString().trim() ?? '');
   if (remote.isEmpty) {
     return DataPackCheckResult.rejected(DataPackReject.missingVersion,
-        detail: '内置版本 $builtinDataVersion');
+        detail: '该包没有 dataVersion/version 字段，无法判断新旧');
   }
-  final cmp = compareDataPackVersion(remote, builtinDataVersion);
-  if (cmp <= 0) {
-    return DataPackCheckResult.rejected(DataPackReject.notNewer,
-        detail: '远程 $remote ≤ 内置 $builtinDataVersion');
+  // X11：基线为空 = 从未应用（新装/清除后），跳过新旧比较直接放行；
+  // 非空时只在载荷**严格更旧**才拒（同版本 = 幂等重放，接受）。
+  if (baselineVersion.trim().isNotEmpty) {
+    final cmp = compareDataPackVersion(remote, baselineVersion);
+    if (cmp < 0) {
+      return DataPackCheckResult.rejected(DataPackReject.notNewer,
+          detail: '远程 $remote 已应用过更新的基线 $baselineVersion，拒绝降级');
+    }
   }
   final minApp = (env['minAppVersion']?.toString() ?? '').trim();
   if (minApp.isNotEmpty && compareDataPackVersion(appVersion, minApp) < 0) {
@@ -361,13 +375,16 @@ String formatDataPackTime(DateTime? t, bool isZh) {
 }
 
 /// 一个数据包的可展示状态快照（G56：页面只消费它，不碰各 catalog）。
+///
+/// X11（build172）：删去 `builtinDataVersion` —— 版本闸门基准改为每包
+/// 持久化的「上次已应用的 dataVersion」（见 data_pack_baseline.dart）之后，
+/// 「内置版本」不再参与任何判定，展示层面一并移除。
 class DataPackState {
   const DataPackState({
     required this.id,
     required this.nameZh,
     required this.nameEn,
     required this.sourceUrls,
-    required this.builtinDataVersion,
     required this.status,
     required this.reject,
     required this.detail,
@@ -381,7 +398,6 @@ class DataPackState {
   final String nameZh;
   final String nameEn;
   final List<String> sourceUrls;
-  final String builtinDataVersion;
   final DataPackStatus status;
   final DataPackReject reject;
   final String detail;
@@ -416,8 +432,8 @@ class DataPackState {
             : 'Failed · ${describeDataPackReject(reject, detail: detail, isZh: false)}$keep';
       case DataPackStatus.builtin:
         return isZh
-            ? '内置数据 · 版本 $builtinDataVersion · 尚未拉取远程包'
-            : 'Built-in · version $builtinDataVersion · not fetched yet';
+            ? '内置数据 · 尚未拉取远程包'
+            : 'Built-in · not fetched yet';
     }
   }
 }

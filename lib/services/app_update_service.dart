@@ -26,6 +26,11 @@ class AppUpdateInfo {
   final bool hasUpdate;
   final String? publishedAt;
 
+  /// S2（build172）：更新源自带 APK 的 SHA-256（64 位 hex，来自 Release 资产
+  /// 的摘要字段）。null/空 = 源没提供 ⇒ [AppUpdateService.downloadAndInstall]
+  /// 会 fail-closed 拒绝安装（防装上被篡改的包）。
+  final String? sha256;
+
   const AppUpdateInfo({
     required this.currentVersion,
     required this.latestVersion,
@@ -35,7 +40,27 @@ class AppUpdateInfo {
     required this.apkSize,
     required this.hasUpdate,
     this.publishedAt,
+    this.sha256,
   });
+}
+
+/// S2（build172）：GitHub Release 资产的 digest 字段 → 纯十六进制 sha256；
+/// 格式不对返回 null。
+///
+/// GitHub API 资产摘要形如 `"sha256:bbbf8ec2..."`。规则：
+/// null/空 → null；前缀（冒号前）大小写不敏感且必须是 sha256；hex 部分必须
+/// 恰好 64 位十六进制字符，否则返回 null。顶层纯函数，单测直调。
+String? parseGitHubDigest(Object? digest) {
+  if (digest is! String) return null;
+  final s = digest.trim();
+  if (s.isEmpty) return null;
+  final colon = s.indexOf(':');
+  if (colon < 0) return null;
+  final algo = s.substring(0, colon).trim().toLowerCase();
+  if (algo != 'sha256') return null;
+  final hex = s.substring(colon + 1).trim();
+  if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hex)) return null;
+  return hex.toLowerCase();
 }
 
 /// APP 更新检查服务
@@ -146,6 +171,8 @@ class AppUpdateService {
 
       final apkUrl = apk['browser_download_url'] as String? ?? '';
       final apkSize = apk['size'] as int? ?? 0;
+      // S2（build172）：读取资产自带的完整性摘要（此前从未被读）
+      final apkSha256 = parseGitHubDigest(apk['digest']);
 
       // tag 中解析出版本号："v1.7.11+58" → "1.7.11+58"
       var latest = tag;
@@ -157,7 +184,8 @@ class AppUpdateService {
 
       _logger.info(
           'AppUpdate: 最新 $latest, 当前 $current, hasUpdate=$hasUpdate, '
-          'apk=$apkUrl (${(apkSize / 1024 / 1024).toStringAsFixed(2)}MB)',
+          'apk=$apkUrl (${(apkSize / 1024 / 1024).toStringAsFixed(2)}MB), '
+          'sha256=${apkSha256 == null ? 'missing' : 'ok'}',
           tag: 'AppUpdate');
 
       return AppUpdateInfo(
@@ -169,6 +197,7 @@ class AppUpdateService {
         apkSize: apkSize,
         hasUpdate: hasUpdate,
         publishedAt: publishedAt,
+        sha256: apkSha256,
       );
     } catch (e) {
       // build145：降到 WARN 且不写堆栈。原因不是「不重要」，而是**这条在正常配置下必然发生**：
@@ -196,6 +225,18 @@ class AppUpdateService {
     AppUpdateInfo info, {
     void Function(int received, int total)? onProgress,
   }) async {
+    // S2（build172）：自更新 fail-closed —— 更新源没提供 SHA-256 一律拒绝安装，
+    // 防止装上被篡改的 APK。放在路由探测（resolveBest）之前：无校验和直接拒绝，
+    // 不发任何网络请求。有校验和时由下载器落盘后实算比对（见 verifyFileSha256）。
+    if ((info.sha256 ?? '').trim().isEmpty) {
+      _logger.error(
+          'AppUpdate: 更新源未提供 SHA-256 校验和，已拒绝安装: ${info.apkUrl}',
+          tag: 'AppUpdate');
+      return {
+        'success': false,
+        'error': '更新源未提供 SHA-256 校验和，已拒绝安装（防止装上被篡改的包）',
+      };
+    }
     _logger.info('AppUpdate: 开始下载更新 v${info.latestVersion} → ${info.apkUrl}',
         tag: 'AppUpdate');
     // v1.7.38：大文件不对冲——先用 GitHubContentFetcher 串行探测选最优路由，
@@ -218,6 +259,8 @@ class AppUpdateService {
         fileName: fileName,
         onProgress: onProgress,
         taskId: 'app_update_${DateTime.now().millisecondsSinceEpoch}',
+        // S2（build172）：把检查阶段拿到的校验和交给下载器，落盘后实算比对
+        sha256Hex: info.sha256,
       );
       if (result['success'] != true) {
         _logger.error('AppUpdate: 下载失败: ${result['error']}', tag: 'AppUpdate');
