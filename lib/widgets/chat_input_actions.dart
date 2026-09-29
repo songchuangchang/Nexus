@@ -6,7 +6,8 @@ import '../models/chat_message.dart';
 ///
 /// 把原 ChatInput 9 个可选回调归并为一个不可变 value object。
 /// - [onLongPressSearch] 🌐 长按 → 跳转联网搜索设置页
-/// - [onLongPressReact]  🧠 长按 → 跳转自主思考设置页
+/// - [onLongPressReact]  🧠 长按 → 跳转自主思考设置页（build173：**长按原行为不动**，
+///   档位切换并进的是🧠**点按**那个弹层，见 [onSubagentModeChanged]）
 /// - [onLongTextPasted] build101（F5）长文本自动转文件：只在
 ///   `ChatInputConfig.pasteLongAsFile` 为 true 且文本超阈值时触发。
 /// - [onModelChanged] 只承载真模型选中；选「➕编辑模型」由 ModelSwitcher
@@ -20,6 +21,9 @@ class ChatInputActions {
   final ValueChanged<double>? onReasoningEffortChanged;
   // v1.7.37：更大上下文 Max（🧠 弹层内开关）
   final ValueChanged<bool>? onLargeContextMaxChanged;
+  // build173 第三片：子代理档位（🧠 弹层内五档 chip）。与上面两个开关同一条纪律——
+  // **点「应用」才写**，滑过/选中过程中不落库；原值没变时不回调（宿主无需去重）。
+  final ValueChanged<String>? onSubagentModeChanged;
   final VoidCallback? onTogglePluginHint;
   final VoidCallback? onEditPluginHint;
   final ValueChanged<ApiConfig>? onModelChanged;
@@ -36,6 +40,7 @@ class ChatInputActions {
     this.onLongPressReact,
     this.onReasoningEffortChanged,
     this.onLargeContextMaxChanged,
+    this.onSubagentModeChanged,
     this.onTogglePluginHint,
     this.onEditPluginHint,
     this.onModelChanged,

@@ -7,6 +7,8 @@ import '../services/mcp_client_service.dart';
 import '../utils/ssrf_guard.dart';
 import 'plugin_context.dart';
 import 'plugin_interface.dart';
+// build173（S13/S19b）：裸 toolresult 通道收口到同一个信封构造函数。
+import 'builtin_plugins.dart' show toolResultTag;
 
 class InstalledMcpPlugin extends ReActPlugin {
   final PluginMetadata _meta;
@@ -306,16 +308,19 @@ class InstalledMcpPlugin extends ReActPlugin {
       conversationId:
           pc.userMsg?.conversationId ?? pc.assistantMsg.conversationId,
       role: MessageRole.user,
-      content:
-          '<toolresult plugin_id="${_escape(_meta.id)}" tool="${_escape(tool)}">${_escape(text)}</toolresult>',
+      // build173（S13/S19b）裸通道收口：MCP 的**上游返回原文**是本片最主要的一条
+      // 不可信内容入口，原先这里自带一份 `_escape`（`& < " >` 四件套，不含 `=`）、
+      // 外壳手拼，既没有 `encoding`/`trust`，也从没过结构锁。改成走同一个信封
+      // 构造函数 ⇒ 转义与结构锁都在 builtin_plugins 那一处收口。
+      // **删掉 `_escape`**：预转义再过一次外壳就是二次转义（`&amp;lt;`），
+      // 属性位（plugin_id/tool）由信封自己按属性口径转义。
+      content: toolResultTag(
+        pluginId: _meta.id,
+        tool: tool,
+        body: text,
+      ),
     );
   }
-
-  String _escape(String value) => value
-      .replaceAll('&', '&amp;')
-      .replaceAll('"', '&quot;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
 
   void close() => _client.close();
 }

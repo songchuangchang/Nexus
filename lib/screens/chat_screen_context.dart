@@ -299,22 +299,12 @@ extension ChatScreenContextExt on _ChatScreenState {
   // v1.7.34：子代理模式的中英标签
   // build146：标签只是**档位名**，不承诺行为（"自动"不再暗示编排）；
   // 每一档真正做什么写在下面 _subagentModeHint 里，二者不许互相打架。
-  String _subagentModeLabel(String mode, bool isZh) {
-    switch (mode) {
-      case 'auto':
-        return isZh ? '自动 Auto' : 'Auto';
-      case 'main_only':
-        return isZh ? '仅主代理' : 'Main only';
-      case 'force_search':
-        return isZh ? '强制搜索' : 'Force search';
-      case 'force_synthesis':
-        return isZh ? '强制合成' : 'Force synthesis';
-      case 'force_plugin':
-        return isZh ? '强制插件' : 'Force plugin';
-      default:
-        return mode;
-    }
-  }
+  // build173 第三片：档位名搬进共享表 `subagentModeLabel`
+  // （lib/widgets/chat_input_config.dart）——🧠 点按弹层与本页现在读同一张表，
+  // 两页各留一份中文名必然漂；画法也共用同一个 [SubagentModePicker]。
+  // 下面这张 hint 表**仍留在本页**：它是整句详解，只有对话设置这一页说一次，
+  // 弹层那一层给的是另一句一行的真话（`subagentModeLaneNote`），两者方向相同、
+  // 不同屏重复（判据出处 build146_subagent_default_test 的源码锚点也钉在这里）。
 
   String _subagentModeHint(String mode, bool isZh) {
     // build146（子代理：路由不再单独花钱）：文案必须对上**真实落点**——
@@ -1001,39 +991,17 @@ extension ChatScreenContextExt on _ChatScreenState {
                       // 其余三档走自主思考循环——所以这里不再给"哪档会编排"的暗示，
                       // 具体说在哪行的 hint 里（_subagentModeHint），判据在
                       // services 层 subagentModeUsesOrchestrator（唯一入口）。
-                      Text(
-                        isZh ? '子代理模式：' : 'Sub-agent mode:',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant),
-                      ),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final m in Conversation.kSubagentModes)
-                            ChoiceChip(
-                              showCheckmark: false,
-                              label: Text(_subagentModeLabel(m, isZh),
-                                  style: const TextStyle(fontSize: 11)),
-                              selected: subagentMode == m,
-                              selectedColor: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.12),
-                              onSelected: (_) =>
-                                  setDialogState(() => subagentMode = m),
-                            ),
-                        ],
-                      ),
-                      Text(
-                        _subagentModeHint(subagentMode, isZh),
-                        style: TextStyle(
-                            fontSize: 11,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant),
+                      // build173 第三片：这一格换成共享组件 [SubagentModePicker]，
+                      // 与 🧠 点按弹层**同一个画法、同一张档位名表**（原来只有这里能改
+                      // 档位，长按 🧠 两跳才够得着；弹层那一份是这次新加的入口）。
+                      // 本页仍说整句详解（note: 传 _subagentModeHint），弹层说一行真话。
+                      SubagentModePicker(
+                        modes: Conversation.kSubagentModes,
+                        selected: subagentMode,
+                        isZh: isZh,
+                        note: _subagentModeHint(subagentMode, isZh),
+                        onSelected: (m) =>
+                            setDialogState(() => subagentMode = m),
                       ),
                       // ===== build90 ⑧：所属项目 =====
                       const Divider(height: 20),
@@ -1160,6 +1128,24 @@ extension ChatScreenContextExt on _ChatScreenState {
       ));
     }
     if (mounted) setState(() => _enable20sCheck = enable20sCheck);
+  }
+
+  /// build173 第三片：🧠 点按弹层里改子代理档位的**唯一落库出口**。
+  ///
+  /// 与上面 `_showConversationSettings` 收尾那一条走同一条写入路径
+  /// （改 `widget.conversation.subagentMode` → `saveConversation` → `setState`），
+  /// 不新开第二种存法、不新增列、不迁移：存的就是那五个字符串之一。
+  /// 只在「应用」后被调（弹层里选而未应用不会走到这里，见 `chat_input.dart`），
+  /// 值没变也不写库。档位语义一位没动：默认 `auto` 仍归自主思考循环
+  /// （判据唯一入口 `services/agent_orchestrator.dart` 的
+  /// `subagentModeUsesOrchestrator`，本片不改默认值）。
+  Future<void> _saveSubagentMode(String mode) async {
+    if (!Conversation.kSubagentModes.contains(mode)) return;
+    if (widget.conversation.subagentMode == mode) return;
+    widget.conversation.subagentMode = mode;
+    await _storage.saveConversation(widget.conversation);
+    if (!mounted) return;
+    setState(() {});
   }
 
   // ==========================================================================

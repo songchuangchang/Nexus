@@ -1255,7 +1255,25 @@ class BackupService {
         reactEnabled: webSearchCfg.reactEnabled,
         reactMaxRounds: webSearchCfg.reactMaxRounds,
         reactAutoMode: webSearchCfg.reactAutoMode,
-        githubProxyUrl: webSearchCfg.githubProxyUrl,
+        // build173（S24）：下面这三格在**合并导入**里一律保留本机值，
+        // 照抄同段 `biometricLockEnabled`（build145）的先例与口径：
+        // 合并＝"导入的补进来、本机的不丢"，安全设置不许被一份文件带回来；
+        // 只有覆盖导入（换机还原整份状态）才跟随文件。
+        // 为什么**只焊这三格**（其余扫描开关故意不动，别以为全都保护了）：
+        //  - localScanRulesUrl：所有扫描路径都吃它，**含 forceLocalScan 那条**
+        //    （security_gate.dart:152/209 把它直接喂进 LocalScanService.scanXxx）
+        //    ⇒ 它才是「一份文件换掉扫描规则源」的那根线，焊它最值。
+        //  - enableLocalScan：关掉不影响 AI 代装三跳（install_mcp_plugin.dart:192、
+        //    mcp_catalog_screen.dart:454、skill_install_service.dart:166 全传
+        //    forceLocalScan: true，在 security_gate.dart:147/205 直接短路），
+        //    受影响的是**手动市场安装**（plugin_market_screen.dart:1013/1232/1455）。
+        //  - githubProxyUrl：它改写 release/Skill 资产的下载宿主，载荷从那儿来。
+        //  - enableMcp/Skill/ApkSecurityScan 三格**故意留白**：它们只 gate 外部
+        //    SkillSpector/MobSF，而 DB 默认就是 0（storage_service.dart:1250-1253）
+        //    ⇒「被文件关掉」与全新装等价，不值得为此改变合并语义。
+        githubProxyUrl: merge
+            ? currentCfg.githubProxyUrl
+            : webSearchCfg.githubProxyUrl,
         verboseLogging: webSearchCfg.verboseLogging,
         // v1.7.9 (M3 修复)：补齐 v1.7.5 安全审查 5 字段，
         // 之前漏掉 → 导入备份会把 SkillSpector/MobSF 端点和 3 个开关静默重置为空/关
@@ -1265,8 +1283,13 @@ class BackupService {
         mobsfEndpoint: webSearchCfg.mobsfEndpoint,
         enableApkSecurityScan: webSearchCfg.enableApkSecurityScan,
         // v1.7.10：本地扫描 2 字段（同 M3 教训：导入别静默重置）
-        enableLocalScan: webSearchCfg.enableLocalScan,
-        localScanRulesUrl: webSearchCfg.localScanRulesUrl,
+        // build173（S24）：这两格并入上面「只焊三格」的口径——合并保留本机。
+        enableLocalScan: merge
+            ? currentCfg.enableLocalScan
+            : webSearchCfg.enableLocalScan,
+        localScanRulesUrl: merge
+            ? currentCfg.localScanRulesUrl
+            : webSearchCfg.localScanRulesUrl,
         // v1.7.11：VirusTotal + MobSF API Key（同 M3 教训）
         // build138（P1-1）：这两列漏走 pickKey —— 导出侧 isSecretKey 后缀白名单
         // （:150-166）会把所有 *ApiKey 从「不含 Key」的备份里剥掉，fromMap 兜底成 ''，

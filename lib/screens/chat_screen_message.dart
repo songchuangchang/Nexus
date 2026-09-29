@@ -927,6 +927,15 @@ extension ChatScreenMessageExt on _ChatScreenState {
             final key = (piece['key'] ?? '').trim();
             final value = (piece['value'] ?? '').trim();
             if (key.isEmpty || value.isEmpty) continue;
+            // build173（C 的收尾，与 builtin_plugins 那条 memory_write 同一个口径）：
+            // 总闸关着就整条跳过，**包括下面 :939/:957 那两次同 key 覆盖删除**——
+            // storage 咽喉只挡写、挡不住先删，关≠删会在这一格变成"净丢一条"。
+            // 判据仍只有 StorageService 那一处，这里只是提前问一次好把话说实话。
+            if (!await StorageService.autoMemoryEnabled()) {
+              _logger.warn('[Chat] memory_write 跳过：自动记忆总闸=关（$key）',
+                  cat: LogCat.db, tag: 'AutoMemory');
+              continue;
+            }
             final memContent = '$key：$value';
             var blockedByManual = false;
             if (scope == 'project' &&

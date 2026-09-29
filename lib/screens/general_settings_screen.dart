@@ -45,16 +45,43 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
   /// 总闸（`kBackgroundRunAllowedKey`）。null = 还没读到，此时那一行显示为关且点不动。
   bool? _backgroundRunAllowed;
 
+  /// build173（方案 C）：「自动记忆」总闸当前值（`kAutoMemoryEnabledKey`）。
+  /// null = 还没读到 —— 与上面那一位同一个处理口径：没读到就不给点，
+  /// 免得画出一个"看着能拨、拨了没落盘"的假开关。
+  bool? _autoMemoryEnabled;
+
   @override
   void initState() {
     super.initState();
     _loadBackgroundRunSwitch();
+    _loadAutoMemorySwitch();
   }
 
   Future<void> _loadBackgroundRunSwitch() async {
     final allowed = await loadBackgroundRunAllowed();
     if (!mounted) return;
     setState(() => _backgroundRunAllowed = allowed);
+  }
+
+  /// 读「自动记忆」那一位。**读的是 StorageService 那一处读**，页面不自己
+  /// `getBool(kAutoMemoryEnabledKey)`：判据有两份就会漂（教训 #62 同族），
+  /// 而这一位的消费点在落库咽喉里、不在本页。
+  Future<void> _loadAutoMemorySwitch() async {
+    final enabled = await StorageService.autoMemoryEnabled();
+    if (!mounted) return;
+    setState(() => _autoMemoryEnabled = enabled);
+  }
+
+  /// 拨「自动记忆」那一下：只写 prefs，不碰库里已有的任何一条。
+  ///
+  /// 这一步刻意**没有**"顺手清掉自动生成的记忆"那种联动 —— 厂商三家的共性是
+  /// **关 ≠ 删**（OpenAI 原文 `关闭记忆不会删除以往的聊天`、Claude 的
+  /// `Pause memory` 停写不删），把"停"和"删"挤进同一个开关会让人不敢关。
+  /// 清空是另一个动作，本批不做（不可逆删除，单独一片 + 单独二次确认）。
+  Future<void> _toggleAutoMemory(bool v) async {
+    await StorageService.setAutoMemoryEnabled(v);
+    if (!mounted) return;
+    setState(() => _autoMemoryEnabled = v);
   }
 
   /// 拨总闸那一下：落盘 → 让中枢按**生效值**开始/停止投影 → 只有开过才问系统要权限。
@@ -85,6 +112,10 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final zh = l.locale.languageCode == 'zh';
     final backgroundRunAllowed = _backgroundRunAllowed ?? false;
+    // 缺省按 true 显示 = 与消费档一致，也与 `_loadAutoMemorySwitch()` 还没回来时
+    // 库里那条闸的默认行为一致（两处都猜 false 的话，页面上会出现一个"看着是关、
+    // 实际还在写"的假状态）。
+    final autoMemoryEnabled = _autoMemoryEnabled ?? true;
     return Scaffold(
       appBar: AppBar(title: Text(zh ? '通用设置' : 'General')),
       // v1.7.25：设置页固定缩放，避免全局字体缩放挤压布局
@@ -137,6 +168,42 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
                 ),
                 LiveNotificationsCard(masterAllowed: backgroundRunAllowed),
                 const BackgroundRunGuideCard(),
+              ],
+            ),
+            // build173（用户批准的方案 C）：AI 自动写长期记忆**不弹窗**，
+            // 但给他一个总闸 —— 形状照上面「愿意后台化」那一组（一个组标题 +
+            // 一行 SwitchListTile + 卡片现成的 AppSectionCard，不新造组件）。
+            // 默认开（三家消费档一致，理由见 `kAutoMemoryEnabledKey` 的注释），
+            // 关掉只是**不再新增**：库里已有的记忆一条不动、仍然能看能逐条删
+            // （`memories_settings_screen.dart` 的删除从 build97 起就是二次确认）。
+            // 文案是描述式的，不写"绝不会上传/永远只存本机"那类承诺。
+            AppSectionCard(
+              children: [
+                Padding(
+                  // 水平留白由 `AppSectionCard.contentPadding` 给，这里只留上下
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 2),
+                  child: Text(
+                    zh ? '记忆' : 'Memory',
+                    style: TextStyle(
+                        fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  secondary: const Icon(Icons.auto_awesome_outlined),
+                  title: Text(zh ? '自动记忆' : 'Auto memory'),
+                  subtitle: Text(
+                    zh
+                        ? '关掉后 AI 不再自动记，已有记忆仍可看可删'
+                        : 'No new notes; delete any',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  // `_autoMemoryEnabled == null`（还没读到）时点不动：见字段注释。
+                  value: autoMemoryEnabled,
+                  onChanged:
+                      _autoMemoryEnabled == null ? null : _toggleAutoMemory,
+                ),
               ],
             ),
             AppSectionCard(

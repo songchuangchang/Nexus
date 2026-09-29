@@ -10,7 +10,7 @@ library constants;
 const String kAppVersionConst = String.fromEnvironment(
   'APP_VERSION',
   defaultValue:
-            '1.7.115+172', // build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
+            '1.7.116+173', // build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
 );
 
 /// build115（typed 内核最小切片）：答案来源开关。

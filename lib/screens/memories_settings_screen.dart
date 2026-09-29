@@ -10,6 +10,22 @@ import '../services/storage_service.dart';
 import '../ui/tokens.dart';
 import '../utils/app_snackbar.dart';
 
+/// build173（方案 C）：**这条是谁写的**要在这一页上看得见。
+///
+/// 为什么放在这里而不是弹窗里：用户批准的是"自动写不弹窗、给总闸 + 这页能看清
+/// 哪条是 AI 写的"（总闸在「通用设置」，判据与拦截都在
+/// `StorageService._autoMemoryGateAllows`，本页只负责显示）。
+/// 判据只认 `source == 'auto'` 这一个值 —— 与全仓另外三处同一口径
+/// （`MemoryWritePlugin.autoOverwriteAllowed` / `memory_block_builder._isAuto` /
+/// `StorageService.excessMemoryIdsToDelete`），不新造第四份判断。
+/// 其余值一律按手动对待：`GlobalMemory.source` 目前全仓只会落 'auto' 与 'manual'，
+/// 而 `fromMap` 缺省就是 'manual'。
+///
+/// 形状纪律：标签走 ListTile 现成的 subtitle 槽（同文件项目列表那行就是这么用的，
+/// fontSize 也沿用本页既有的 12），不新造组件、不加尺寸、不加动画。
+String memorySourceLabel(String source, {required bool zh}) =>
+    source == 'auto' ? (zh ? '自动生成' : 'Auto') : (zh ? '手动' : 'Manual');
+
 class MemoriesSettingsScreen extends StatefulWidget {
   const MemoriesSettingsScreen({super.key});
 
@@ -346,6 +362,12 @@ class _MemoriesSettingsScreenState extends State<MemoriesSettingsScreen>
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
                     ),
+                    // build173（方案 C）：这条是 AI 自动写的还是我写的 —— 一眼分清，
+                    // 因为总闸只管 auto 那一档，而"关掉之后还能逐条删"要能核对到。
+                    subtitle: Text(
+                      memorySourceLabel(m.source, zh: zh),
+                      style: const TextStyle(fontSize: 12),
+                    ),
                     onTap: () => _editGlobalMemory(m),
                     onLongPress: () => _deleteGlobalMemory(m),
                   ),
@@ -598,6 +620,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 13),
+                            ),
+                            // 与全局那一列同一个标签、同一个 subtitle 槽
+                            // （总闸同样管着项目记忆那条路，见 saveProjectMemory）
+                            subtitle: Text(
+                              memorySourceLabel(m.source, zh: zh),
+                              style: const TextStyle(fontSize: 12),
                             ),
                             onTap: () => _editMemory(m),
                           ),

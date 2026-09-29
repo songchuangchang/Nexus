@@ -15,7 +15,12 @@ class GlobalMemory {
 
   final String id;
   String content;
-  String source; // manual / conversation:<id>
+  // manual（用户在记忆页自己写的）/ auto（AI 自动写的，唯一被「自动记忆」总闸管住的那一档）
+  // / conversation:<id>（从某次会话带出来的）。
+  // build173：这一行的旧注释只写了 manual 与 conversation:<id>，`auto` 从没写进来，
+  // 而 `auto` 恰恰是判据里被单独对待的那一档（storage_service 的总闸、
+  // memory_block_builder._isAuto、builtin_plugins.autoOverwriteAllowed 都只认它）。
+  String source;
   bool pinned; // 钉住=永不自动清理
   final int createdAt;
   int updatedAt;

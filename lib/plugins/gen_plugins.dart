@@ -9,6 +9,8 @@ import '../services/image_gen_service.dart';
 import '../services/video_gen_service.dart';
 import 'plugin_context.dart';
 import 'plugin_interface.dart';
+// build173（S13/S19b）：裸 toolresult 通道收口到同一个信封构造函数。
+import 'builtin_plugins.dart' show toolResultTag;
 
 /// build122：生成类内置插件（图片 / 视频）。
 ///
@@ -65,9 +67,19 @@ void _finish(PluginContext pc, ReasoningStep? step, String pluginId,
   pc.addMessage(ChatMessage.create(
     conversationId: pc.assistantMsg.conversationId,
     role: MessageRole.user,
-    content:
-        '<toolresult plugin_id="$pluginId" tool="$tool" status="$status"'
-        '${isError ? ' is_error="true"' : ''}>${summary.replaceAll('<', '&lt;')}</toolresult>',
+    // build173（S13/S19b）裸通道收口：这里原先自己拼外壳、正文只替 `<`
+    // （`>`/`&`/`=` 原样透传，也没有 `encoding`/`trust`），改走同一个信封构造
+    // 函数 ⇒ 转义 + 结构锁两道口径与 builtin_plugins 的 12 个调用点逐字节一致。
+    // **不再**在这里预转义 summary：预转义再过一次外壳就是二次转义（`&amp;lt;`）。
+    content: toolResultTag(
+      pluginId: pluginId,
+      tool: tool,
+      attrs: {
+        'status': status,
+        if (isError) 'is_error': 'true',
+      },
+      body: summary,
+    ),
   ));
 }
 

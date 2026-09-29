@@ -54,6 +54,36 @@ class _SecurityScanSettingsScreenState
   String? _syncResultMsg;
   bool _syncOk = false;
 
+  /// B6（build173）：**绿勾只属于"真的拉到远程规则"那一支**。
+  ///
+  /// 立项事实：`_syncOk` 原来只看 `result.ok`，而闸门拒绝那一路不抛异常 ⇒
+  /// prefetchRules 走 remoteCount==0 那支返回 ok:true + "No remote rules,
+  /// using builtin only" ⇒ 页面亮绿勾，当面向用户谎报"远程没有规则"。
+  /// 服务端自 173 起对被拒那一路返回 ok:false，但这里再钉一道：
+  /// `ok_builtin_only`（拉到的是空规则集）同样不算成功，绿勾必须等于
+  /// `lastSyncStatus == 'ok'`。
+  bool get _rulesGreen =>
+      _syncResultMsg != null &&
+      _syncOk &&
+      LocalScanService.lastSyncStatus == 'ok';
+
+  /// B6（build173）：把 [LocalScanService.lastSyncStatus] 念成一行（中英各一条，
+  /// 均 ≤28 字、无 emoji）。词表口径 = `rejected:<DataPackReject.name>`，
+  /// 这一行只做展示翻译；拒因原文（含码）在上一条 `_syncResultMsg` 里。
+  String? _rulesSyncLine(bool zh) {
+    final status = LocalScanService.lastSyncStatus;
+    if (status == null) return null;
+    if (LocalScanService.lastSyncRejected) {
+      return zh ? '远程规则被拒，仍用内置' : 'Rules rejected; builtin used';
+    }
+    return switch (status) {
+      'ok' => zh ? '远程规则已同步' : 'Remote rules synced',
+      'ok_builtin_only' => zh ? '远程无规则，用内置' : 'No remote rules; builtin',
+      'empty_url' => zh ? '未设置远程规则源' : 'No remote rules URL set',
+      _ => zh ? '远程规则同步失败' : 'Remote rules sync failed',
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -143,6 +173,8 @@ class _SecurityScanSettingsScreenState
     WebSearchConfig cfg,
     bool zh,
   ) {
+    // B6（build173）：一次构建只取一次读数（下面两处都要用）。
+    final syncLine = _rulesSyncLine(zh);
     return Container(
       decoration: BoxDecoration(
         color: colorScheme.appPanelLight,
@@ -230,9 +262,11 @@ class _SecurityScanSettingsScreenState
                   : _syncResultMsg != null
                       ? IconButton(
                           icon: Icon(
-                            _syncOk ? Icons.check_circle : Icons.error,
+                            _rulesGreen
+                                ? Icons.check_circle
+                                : Icons.error,
                             size: 18,
-                            color: _syncOk
+                            color: _rulesGreen
                                 ? colorScheme.primary
                                 : colorScheme.error,
                           ),
@@ -289,9 +323,12 @@ class _SecurityScanSettingsScreenState
             Row(
               children: [
                 Icon(
-                  _syncOk ? Icons.check_circle_outline : Icons.error_outline,
+                  _rulesGreen
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
                   size: 14,
-                  color: _syncOk ? colorScheme.primary : colorScheme.error,
+                  color:
+                      _rulesGreen ? colorScheme.primary : colorScheme.error,
                 ),
                 const SizedBox(width: 4),
                 Flexible(
@@ -299,11 +336,28 @@ class _SecurityScanSettingsScreenState
                     _syncResultMsg!,
                     style: TextStyle(
                       fontSize: 11,
-                      color: _syncOk ? colorScheme.primary : colorScheme.error,
+                      color:
+                          _rulesGreen ? colorScheme.primary : colorScheme.error,
                     ),
                   ),
                 ),
               ],
+            ),
+          ],
+          // B6（build173）：把「那一跳」的真状态念出来。
+          // 读的是 LocalScanService.lastSyncStatus（服务端每次尝试都写，含
+          // security_gate 扫描前那两次 prefetchRules），所以用户不点「立即同步」
+          // 也看得见被拒；绿勾自 173 起只代表 lastSyncStatus == 'ok'。
+          if (syncLine != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              syncLine,
+              style: TextStyle(
+                fontSize: 10,
+                color: LocalScanService.lastSyncRejected
+                    ? colorScheme.error
+                    : colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
           if (LocalScanService.lastSyncTime != null) ...[
@@ -738,7 +792,9 @@ class _SecurityScanSettingsScreenState
       builder: (ctx) => _CustomRulesDialog(zh: zh),
     );
     // 规则变更后清缓存，下次扫描即生效
-    LocalScanService.clearCache();
+    // build173（S27）：clearCache 现在是 async——它要顺手清掉 rules 的
+    // 已应用基线（换源才不会被旧基线恒判 notNewer），不 await 就是没清。
+    await LocalScanService.clearCache();
   }
 
   /// P2-3：格式化同步时间

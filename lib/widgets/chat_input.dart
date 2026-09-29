@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/chat_message.dart';
+import '../models/conversation.dart';
 import '../models/plugin_hint_config.dart';
 import '../ui/app_sheet.dart';
 // build168（宽屏档）：功能行的排布档读这里（断点/列宽的唯一所有者），
@@ -724,6 +725,8 @@ class ChatInput extends StatelessWidget {
             : null,
       ),
       // 思考（v1.7.25：点按弹思考强度细化滑块；长按跳对话设置）
+      // build173：点按那个弹层里现在**同时**有子代理五档（入口从「只能长按」抬到一次
+      // 点按）；长按原行为一位没动，仍进对话设置——那一页给的是整句详解与其余字段。
       'react': ActionButton(
         icon: Icons.psychology_alt_outlined,
         badge: config.reactEnabled
@@ -772,6 +775,12 @@ class ChatInput extends StatelessWidget {
 
   /// 思考强度点按 → 统一底部弹层（0.0–1.0，0.1 步进；0=默认/自动，1.0=深度研究）
   ///
+  /// build173（第三片，用户「子代理启用不明显」的**入口**那一半）：子代理档位并进展
+  /// 这**同一个弹层**——此前五档只能长按 🧠 进「对话设置」才够得着（两跳 + 十几个字段里
+  /// 找），点按只给强度，于是"有没有启用子代理"在界面上根本摸不到。
+  /// 这里刻意**不新开第二个弹窗**：入口、取消/应用、写库时机全部沿用本弹层现有的那一套
+  /// （选了不算，点「应用」才落库；取消或下滑关闭 ⇒ 一位都不改）。长按原行为不动。
+  ///
   /// build138（#6，Q2 已批）：由手搓的通用对话框（全 `lib/` 最后一处裸弹层）换成
   /// [showAppSheet]。原实现三个问题一次消掉：
   ///   · 靠「输入框上方 92 像素」这类魔法偏移与 0.92 屏宽手摆位置（输入框一改高度
@@ -788,7 +797,10 @@ class ChatInput extends StatelessWidget {
     var effort = current;
     // v1.7.37：更大上下文 Max 开关并入本面板
     var largeCtx = config.largeContextMax;
-    final picked = await showAppSheet<({double effort, bool largeCtx})>(
+    // build173：子代理档位并入本面板（初值只是宿主当前值的镜像，见 ChatInputConfig）
+    var lane = config.subagentMode;
+    final picked =
+        await showAppSheet<({double effort, bool largeCtx, String lane})>(
       context: context,
       scrollable: true,
       builder: (ctx) => StatefulBuilder(
@@ -842,8 +854,12 @@ class ChatInput extends StatelessWidget {
             ),
             const Divider(height: 16),
             // v1.7.37：更大上下文 Max（200K→1M），开 Max 时自动压缩不生效
+            // build173（E 组）：contentPadding 原来是 EdgeInsets.zero ⇒ 标题贴着屏幕左沿
+            // 被削掉半个字（393×850 golden 实测 left=0.0，而标题块走 AppGap.lg=16）。
+            // 本弹层没有内置横向留白，每一节自己加，所以这里跟着标题的 16 走。
             SwitchListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: AppGap.lg),
               dense: true,
               title: Text(
                 isZh ? '更大上下文 Max' : 'Larger context Max',
@@ -858,6 +874,21 @@ class ChatInput extends StatelessWidget {
               value: largeCtx,
               onChanged: (v) => setSt(() => largeCtx = v),
             ),
+            const Divider(height: 16),
+            // build173（入口这一半）：档位就在强度与 Max 下面，同一层、同一套「应用」。
+            // 画法与档位名都来自共享组件/共享表（对话设置页用的是**同一个** [SubagentModePicker]，
+            // 名字的唯一所有者是 `subagentModeLabel`）；这一层只给**一行真话**
+            // （`subagentModeLaneNote`），整句详解仍在那一页，同屏不重复堆同一条事实。
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppGap.lg),
+              child: SubagentModePicker(
+                modes: Conversation.kSubagentModes,
+                selected: lane,
+                isZh: isZh,
+                note: subagentModeLaneNote(lane, isZh),
+                onSelected: (m) => setSt(() => lane = m),
+              ),
+            ),
             AppSheetActions(
               children: [
                 TextButton(
@@ -865,8 +896,8 @@ class ChatInput extends StatelessWidget {
                   child: Text(isZh ? '取消' : 'Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () =>
-                      Navigator.pop(ctx, (effort: effort, largeCtx: largeCtx)),
+                  onPressed: () => Navigator.pop(
+                      ctx, (effort: effort, largeCtx: largeCtx, lane: lane)),
                   child: Text(isZh ? '应用' : 'Apply'),
                 ),
               ],
@@ -882,6 +913,10 @@ class ChatInput extends StatelessWidget {
     }
     if (picked.largeCtx != config.largeContextMax) {
       actions.onLargeContextMaxChanged?.call(picked.largeCtx);
+    }
+    // build173：档位同一条纪律——只在真变了时回调一次，宿主（ChatScreen）负责落库
+    if (picked.lane != config.subagentMode) {
+      actions.onSubagentModeChanged?.call(picked.lane);
     }
   }
 
@@ -1083,5 +1118,83 @@ class _ComposerLinesState extends State<_ComposerLines> {
     // 存一份拷贝：调用点每帧新建那个 List，留着引用会把"上一帧的输入"当成"这一帧的"。
     _builtInputs = List<Object?>.of(widget.inputs);
     return _built = widget.builder(widget.lines);
+  }
+}
+
+/// 子代理档位选择器（build173 第三片）——**同一个组件**给两处用：
+/// 🧠 点按弹层（本文件 [_showReasoningEffortPicker]）与对话设置页
+/// （`lib/screens/chat_screen_context.dart`）。
+///
+/// 为什么收成组件而不是两处各写一遍 `Wrap` + `ChoiceChip`：五档的名字与选中态样式
+/// 一旦分家就必然漂（本仓口径「两处同毛病先查共享组件，逐页补会留两种口径」）。
+/// 名字的唯一所有者是 `subagentModeLabel`（chat_input_config.dart），合法档位由宿主
+/// 给（`Conversation.kSubagentModes`，模型层唯一真源），本组件只拥有**画法**。
+///
+/// 说明文字（[note]）故意由宿主传入，而不是在这里现造一句：
+///  · 弹层那一层只给一行真话（`subagentModeLaneNote`，中英各 ≤28 字、无 emoji）；
+///  · 对话设置页给整句详解（`_subagentModeHint`，build146 的源码锚点钉着它）。
+/// 两处各说一句、同屏不重复堆同一条事实，方向由同一张真值表决定
+/// （`services/agent_orchestrator.dart` 的 `subagentModeUsesOrchestrator`）。
+///
+/// 无时长、无尺寸过渡（D3：本文件的尺寸所有者只有正文 `TextField` 的 min/maxLines；
+/// 这里连 AnimatedSize 一类都不许沾）。
+class SubagentModePicker extends StatelessWidget {
+  const SubagentModePicker({
+    super.key,
+    required this.modes,
+    required this.selected,
+    required this.onSelected,
+    required this.isZh,
+    this.note,
+  });
+
+  /// 要画哪几档（宿主传 `Conversation.kSubagentModes`，本组件不另发明档位表）
+  final Iterable<String> modes;
+
+  /// 当前选中档（原值，未经归一化；归一化只在 services 层做）
+  final String selected;
+
+  /// 选中某一档（点「应用」才落库由宿主负责）
+  final ValueChanged<String> onSelected;
+
+  final bool isZh;
+
+  /// 那一行说明：null / 空串就整行不画
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isZh ? '子代理模式：' : 'Sub-agent mode:',
+          style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final m in modes)
+              ChoiceChip(
+                showCheckmark: false,
+                label: Text(subagentModeLabel(m, isZh),
+                    style: const TextStyle(fontSize: 11)),
+                selected: selected == m,
+                selectedColor: cs.primary.withValues(alpha: 0.12),
+                onSelected: (_) => onSelected(m),
+              ),
+          ],
+        ),
+        if (note != null && note!.isNotEmpty)
+          Text(
+            note!,
+            style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+          ),
+      ],
+    );
   }
 }

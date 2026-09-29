@@ -849,6 +849,12 @@ class DataPackService extends ChangeNotifier {
           // X11：用户放弃/清除远程载荷 ⇒ 基线一并清，下次拉取视为首用。
           await clearAppliedBaseline(packApiTemplates);
           await prefs.remove(DataPackPrefKeys.apiTemplateJson);
+          // S25（build173）：确认指纹必须跟着一起清，否则这次清除是「清不干净」的。
+          // 链条逐字是这样的：基线清了 ⇒ 下次拉同一份载荷按首次过版本闸；
+          // 但指纹还在 ⇒ _applyPackPayload 里 _isConfirmedTemplateBody 命中旧指纹
+          // ⇒ 跳过 baseUrl 改写确认闸、**静默应用同一份恶意字节**——
+          // 而用户刚刚才放弃过它。方向是「永久静默放行」，不是永久拒绝。
+          await prefs.remove(DataPackPrefKeys.apiTemplateConfirmedSha);
         },
         countItems: countTemplateItems,
       ),

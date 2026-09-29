@@ -186,10 +186,28 @@ extension ChatScreenOrchestratorExt on _ChatScreenState {
             '（${isZh ? '未抽取到正文' : 'no extracted text'}）');
       }
     }
-    if (userMsg.attachments.isNotEmpty) {
-      marks.add(isZh
-          ? '本条附件 ${userMsg.attachments.length} 个'
-          : '${userMsg.attachments.length} attachment(s)');
+    // build173-B（用户「子代理启用不明显，看不出来有没有用」的第二处）：这一格从前
+    // 写「本条附件 N 个」，而上面那句实话（图片一个字节都不随本条请求出网）只进
+    // **出网 prompt** ⇒ 面板上「本轮上下文：… 本条附件 1 个」、模型其实没看见画面，
+    // 那次"面板自证"就被这一格说成了"内容已到"（假阳性，个数为真、内容为假）。
+    // 现在按**内容到底到没到**分两格说，判据与下面那条正文可见行共用同两个谓词
+    // （`orchImageTextInjected` / `orchImageHeldBack`，教训 #62：两处各判一次就
+    // 会出现"面板说发了、正文说没发"）。两格互不排斥：一条消息里既有一张 OCR 成功、
+    // 又有一张完全没正文时，两格**都**该出现。
+    if (orchImageTextInjected(userMsg)) {
+      marks.add(isZh ? '图内文字已注入' : 'image text injected');
+    }
+    if (orchImageHeldBack(userMsg)) {
+      marks.add(isZh ? '画面未随本条发出' : 'image not sent on this round');
+    }
+    // 非图片附件（txt/md/pdf/docx）走的是 ⑥ 第一支——正文**确实**进了 prompt，
+    // 这与"有几个附件"是两件事，所以照同一口径单独给一格（旧口径把它并进个数里，
+    // 于是"3 个"既说不清到了什么、也说不清没到什么）。
+    if (userMsg.attachments.any((a) =>
+        a.type != AttachmentType.image &&
+        a.extractedText != null &&
+        a.extractedText!.isNotEmpty)) {
+      marks.add(isZh ? '附件正文已注入' : 'attachment text injected');
     }
 
     if (prefixBlocks.isEmpty && curAtt.isEmpty) return (userMsg, '');
@@ -513,6 +531,25 @@ extension ChatScreenOrchestratorExt on _ChatScreenState {
         phase: 'orchestrate',
         round: 1,
       ));
+      // build173（用户「子代理启用不明显，看不出来有没有用」）：**接线，不是新造数据**。
+      // 上面那条 `path` 一个字没动（它是完整账本，也是 build146 源码锚点闸钉着的锚），
+      // 这里**并存**再挂一条 `progressNote`：那一条不进取证面板，而由
+      // `message_bubble_v2.dart` 的 `_buildProgressNotes` 按正文样式画在气泡里 ⇒
+      // 收起态就直接看得见。为什么非走这条通道不可——面板两跳深：定稿即收起（:203）、
+      // 未知 kind 一律兜底成 `thinking`（:1069）、标题写死「思考过程」（:1321）、
+      // 折叠标题摘要 `if (s.kind != 'thinking') continue;` 把 `path` 挡在标题外（:1700）
+      // ⇒ 已经算出来的"这一轮到底走了编排"用户根本读不到。而 `progressNote` 是 build164
+      // 就落地的面板外通道，此前全库唯一 emit 点在 ReAct（`chat_screen_react.dart:1276`），
+      // **编排路径 emit 次数 = 0**。面板里那句保留，正文只此一句，同一事实不堆第二遍。
+      // （刻意不在此处 setState：紧接着的 `_finishOrchestratedAnswer` 已经刷一次，
+      //  多刷一次就是同一帧重绘两遍。）
+      appendOrchRoundPathNote(
+        assistantMsg,
+        isZh: isZh,
+        effectiveMode: effectiveMode,
+        llmCallCount: result.llmCallCount,
+        userMsg: userMsg,
+      );
 
       applyOrchUsage();
       await _finishOrchestratedAnswer(assistantMsg, storage, searchHits);
@@ -717,4 +754,102 @@ extension ChatScreenOrchestratorExt on _ChatScreenState {
   // 照着显示名输出的 `<plugin_call name="图片生成">` 无人能执行（真机 2026-09-19
   // 11:59 的「图片生成不了」就是这么来的）。插件目标现已整体交回 ReAct，该清单
   // 没有任何消费方，留着只会诱导下一个人再走一遍这条路。
+}
+
+// ============================================================================
+// build173（用户「子代理启用不明显，看不出来有没有用」）：编排轮的**面板外可见行**
+// ============================================================================
+//
+// 这一族把"本轮到底走了编排、什么档位、花了几次 LLM 调用、图发没发"收成**一处判据**。
+// 面板里那两句（`正在编排：取证 → 综合 → 作答…` 与 `本轮路径：编排器（…）`）早就算好了，
+// 但两跳深：定稿即收起 + 未知 kind 兜底成「思考过程」+ 折叠标题摘要只吃 `thinking`
+// ⇒ 用户读不到，体感就是"看不出有没有用"。修法不是新造数据，是把 build164 已经落地的
+// `progressNote` 通道（**面板之外**、正文样式，见 `utils/agent_artifact_cards.dart` 的
+// `thinkingPanelSteps` 与 `message_bubble_v2.dart` 的 `_buildProgressNotes`）接给编排路径
+// —— 此前全库唯一 emit 点在 ReAct，编排路径 0 次。
+//
+// 为什么放在 extension **外面**：`_runOrchestratedAnswer` 是 `part of 'chat_screen.dart'`
+// 里私有 `_ChatScreenState` 的 extension 方法，单测根本进不去 ⇒ 判据只能驱动这些顶层
+// 函数（本仓既有做法：`chat_screen_message.dart` 的 `isLatestRoundMessage`、
+// `chat_screen_react.dart` 的 `parseSuggestItems` 同一形状）。调用点仍然只有一处。
+
+/// 本条消息里**至少有一张图片**的内容以文字（build172 的 OCR 兜底）进了 prompt。
+///
+/// 判据与上面 ⑥ 那一段**同一个条件**逐字对齐（`extractedText` 非空才会被拼进
+/// 出网消息）——两处各判一次就会出现"面板说发了、正文说没发"。
+bool orchImageTextInjected(ChatMessage m) => m.attachments.any((a) =>
+    a.type == AttachmentType.image &&
+    a.extractedText != null &&
+    a.extractedText!.isNotEmpty);
+
+/// 本条消息里**至少有一张图片**一个字节都没随本条请求出网（画面模型看不见）。
+///
+/// 编排器的 `_call` 只发文本，所以"没有 OCR 正文的图片"就是真的没发出。
+/// 反过来：本条**不带图**时它必须为 false —— 把"没图"写成"图没发"是反向假阳性，
+/// 与旧的「本条附件 N 个」是同一种毛病（说的不是内容到没到）。
+bool orchImageHeldBack(ChatMessage m) => m.attachments.any((a) =>
+    a.type == AttachmentType.image &&
+    (a.extractedText == null || a.extractedText!.isEmpty));
+
+/// 编排轮收尾那一句**面板外可见**的话（build173-A）。
+///
+/// 一句话讲完四件事：走的哪条路（编排）· 实际档位 · LLM 调用数 · 图片发没发。
+///  · **档位吃归一化后的 `$effectiveMode`，不吃存值**：`auto` + 深度研究那一轮实际按
+///    `force_search` 跑（build146 的订正），写存值就是写假信息；
+///  · 中文一句 ≤28 字、无 emoji（R1）；最坏组合 `force_synthesis` + 4 次调用 + 带图
+///    （`kMaxLlmCalls = 4` ⇒ 调用数恒一位）正好 28 字，由判据逐格钉住；
+///  · **不带图片时那一格必须整个不出现**（见 [orchImageHeldBack] 的说明）；
+///  · 面板里那句完整的「本轮路径：…」原样保留 ⇒ 正文这一句不许再堆第二条。
+String orchRoundPathNote({
+  required bool isZh,
+  required String effectiveMode,
+  required int llmCallCount,
+  required ChatMessage userMsg,
+}) {
+  // 混合情况（一张 OCR 成功、一张全空）说**更强**的那一格：确实有画面没出去。
+  final String? image;
+  if (orchImageHeldBack(userMsg)) {
+    image = isZh ? '图未发出' : 'image not sent';
+  } else if (orchImageTextInjected(userMsg)) {
+    image = isZh ? '文字已发' : 'image text sent';
+  } else {
+    image = null;
+  }
+  if (!isZh) {
+    return [
+      'Orchestrated ($effectiveMode)',
+      '$llmCallCount LLM calls',
+      if (image != null) image,
+    ].join(' · ');
+  }
+  return [
+    '编排',
+    effectiveMode,
+    '$llmCallCount次调用',
+    if (image != null) image,
+  ].join('·');
+}
+
+/// 把上面那句挂到本轮助手消息上 —— 编排侧**唯一**的 `progressNote` 出口。
+///
+/// 构造走 react_parser 的 `buildProgressNoteStep`（那是 kind 字符串的唯一真源，
+/// 教训 #62：screen 里不再 new 一个同语义的 ReasoningStep），这里只负责
+/// 「挂哪条消息 + 哪一轮 + 哪个 phase」。
+void appendOrchRoundPathNote(
+  ChatMessage assistantMsg, {
+  required bool isZh,
+  required String effectiveMode,
+  required int llmCallCount,
+  required ChatMessage userMsg,
+}) {
+  assistantMsg.addReasoning(buildProgressNoteStep(
+    orchRoundPathNote(
+      isZh: isZh,
+      effectiveMode: effectiveMode,
+      llmCallCount: llmCallCount,
+      userMsg: userMsg,
+    ),
+    round: 1,
+    phase: 'orchestrate',
+  ));
 }

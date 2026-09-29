@@ -27,6 +27,11 @@ class ChatInputConfig {
   final double reasoningEffort;
   // 更大上下文 Max（v1.7.37 挪入 🧠 弹层）：false=200K，true=1M
   final bool largeContextMax;
+  // build173 第三片：子代理档位（`conversations.subagentMode` 的原值，五档）。
+  // **只是宿主当前值的镜像**，本文件不解释语义、不判走不走编排（判据唯一入口在
+  // services 层 subagentModeUsesOrchestrator）；默认 'auto' 与 Conversation 的
+  // 默认值同字，不改任何默认行为。
+  final String subagentMode;
 
   // -------- 🔌 插件组（v1.7.17 三态）--------
   final PluginHintMode pluginHintMode;
@@ -71,6 +76,7 @@ class ChatInputConfig {
     this.reactAutoMode = false,
     this.reasoningEffort = 0.0,
     this.largeContextMax = false,
+    this.subagentMode = 'auto',
     this.pluginHintMode = PluginHintMode.off,
     this.pluginHintManualCount = 0,
     this.availableConfigs = const <ApiConfig>[],
@@ -96,4 +102,62 @@ String reasoningEffortLabel(double v, bool isZh) {
   if (v <= 0.33) return isZh ? '低 $s' : 'Low $s';
   if (v <= 0.66) return isZh ? '中 $s' : 'Medium $s';
   return isZh ? '高 $s' : 'High $s';
+}
+
+/// 子代理五档的**档位名唯一所有者**（build173 第三片）。
+///
+/// 为什么要搬到这里：这一档现在有两处入口——🧠 点按弹层（本片的入口）与对话设置页，
+/// 两张中文档位表分家必然漂（本仓口径「两处同毛病先查共享组件，逐页补会留两种口径」）。
+/// 画法住在 [SubagentModePicker]（`chat_input.dart`），两处共用同一个组件、同一个名字表。
+///
+/// 只管**展示名**：合法值仍是 `Conversation.kSubagentModes`（模型层唯一真源），
+/// 落点（走不走编排）仍只由 services 层 `subagentModeUsesOrchestrator` 判，这里不另判一套。
+String subagentModeLabel(String mode, bool isZh) {
+  switch (mode) {
+    case 'auto':
+      return isZh ? '自动 Auto' : 'Auto';
+    case 'main_only':
+      return isZh ? '仅主代理' : 'Main only';
+    case 'force_search':
+      return isZh ? '强制搜索' : 'Force search';
+    case 'force_synthesis':
+      return isZh ? '强制合成' : 'Force synthesis';
+    case 'force_plugin':
+      return isZh ? '强制插件' : 'Force plugin';
+    default:
+      return mode;
+  }
+}
+
+/// 选中的那一档下面**一行真话**（🧠 点按弹层用，build173 第三片）。
+///
+/// 用户报的是「子代理启用不明显，看不出来有没有用」，而入口这一片要回答的是
+/// 「我选的这一档到底会不会多花钱」⇒ 每档一行、中英文各 ≤28 字、无 emoji（R1）。
+///  · `auto` 这一句必须是**否定式承诺**：默认档不走编排、不多花路由与专家调用
+///    （真值出处 `services/agent_orchestrator.dart:155-157` 只认
+///    `force_search` / `force_synthesis`，`:118` 只有深度研究才把 auto 归一上去）；
+///  · 深度研究会把 `auto` / `main_only` 升成 `force_search`，那两行都得把这条例外
+///    写进去——写了"永不派专家"就是假话；
+///  · 对话设置页里那句**整句详解**（`_subagentModeHint`）留在
+///    `chat_screen_context.dart`（build146 的源码锚点钉着它），本函数只给一行，
+///    同一屏各说一句、不重复堆同一条事实。
+String subagentModeLaneNote(String mode, bool isZh) {
+  switch (mode) {
+    case 'auto':
+      return isZh
+          ? '默认不走编排，不多花路由与专家调用'
+          : 'No orchestration, no extras';
+    case 'main_only':
+      return isZh
+          ? '只用主代理，不派专家（深度研究除外）'
+          : 'Main only; deep is forced';
+    case 'force_search':
+      return isZh ? '每轮都走编排：先检索再作答' : 'Forced: search then answer';
+    case 'force_synthesis':
+      return isZh ? '每轮都走编排：以综合分析为主' : 'Forced: synthesis first';
+    case 'force_plugin':
+      return isZh ? '插件走自主思考循环，不经编排' : 'Plugins via the loop only';
+    default:
+      return '';
+  }
 }

@@ -17,6 +17,8 @@ import '../services/article_extractor.dart';
 import '../services/logger_service.dart';
 import '../utils/ask_user_option.dart';
 import '../utils/office_writer.dart';
+// build173（S13/S19b）：工具结果正文进上下文前过同一条结构锁归一化通道。
+import '../utils/prompt_structure_guard.dart';
 import '../utils/workspace_permission.dart';
 import 'plugin_interface.dart';
 import 'plugin_context.dart';
@@ -1155,6 +1157,20 @@ class MemoryWritePlugin extends ReActPlugin {
           isZh ? 'memory_write 格式错误：key/value 为空，未写入' : 'memory_write: empty key/value, not saved');
       return;
     }
+    // build173（C 的收尾）：总闸关着 ⇒ 这一整条自动写**一步都不做**，包括下面那两次
+    // 同 key 覆盖删除（:1178 deleteProjectMemory 与 :1214 那段 deleteGlobalMemory）。
+    // 为什么判据住在 storage 咽喉里、这里还要提前问一次：咽喉只挡"写"，挡不住调用方
+    // 先删后写——关闸时那一格会变成"旧的删掉、新的写不进"＝**净丢一条**，
+    // 直接违背设置页那句「关掉后 AI 不再自动记，已有记忆仍可看可删」。
+    // 这不是第二份判据：读的还是 `StorageService.autoMemoryEnabled()` 那一处；
+    // 本文件不出现 pref 键名、不出现 _autoMemoryGateAllows、不自己 && 一个 source 判断。
+    if (!await StorageService.autoMemoryEnabled()) {
+      pc.addReasoningStep('memory_write',
+          isZh ? '跳过写入：自动记忆总闸=关' : 'Skipped: auto memory is off');
+      feedback('skipped',
+          isZh ? '自动记忆已关，未记录' : 'Auto memory off, not saved');
+      return;
+    }
     final storage = pc.storage;
     final content = '$key：$value';
     try {
@@ -2091,8 +2107,8 @@ String _ellipse(String s, int max) {
 // 都做了 `<`→`&lt;`，偏偏工作区这条最容易被外部内容占据的通道没做。
 //
 // 两条口径一起落地：
-//   1) **转义**：正文走 [escapeToolResultContent]（`&`/`<`/`>`），属性值额外
-//      禁引号与换行，闭合标签不可能由正文构造出来；
+//   1) **转义**：正文走 [escapeToolResultContent]（`&`/`<`/`>`，build173 起加 `=`），
+//      属性值额外禁引号与换行，闭合标签不可能由正文构造出来；
 //   2) **数据不是指令**（业界对 prompt injection 的标配约定）：外壳固定带
 //      `encoding="escaped" trust="untrusted"`，配合 api_service / agent_prompts
 //      里新增的一句协议文本，让模型知道标签内是检索到的资料。
@@ -2102,33 +2118,90 @@ String _ellipse(String s, int max) {
 // 表、message_bubble_v2:1742 的展示层剥标签），加属性不会破坏识别；
 // 这三条都在 build146 的回归里钉住了。
 //
-// 待办（本轮未合并的同类点，都改成调本函数即可，逐条列在此处免得又散）：
-//   · lib/plugins/gen_plugins.dart:69（图生成回灌，只替 `<`）
-//   · lib/plugins/installed_mcp_plugin.dart:303（自带一份 `_escape`）
-//   · lib/plugins/plugin_registry.dart:592/622/641/776/781（宿主级 toolresult）
+// build173（S13/S19b）收口：上面两条口径之外，**正文还多过一道结构锁**——
+//   3) **结构锁**：正文转义之后再过 [guardPromptStructure]（本仓唯一的结构锁，
+//      此前生产侧只有 plugin_prompt_catalog 一个调用点，工具结果一个字都没过）。
+//      分工是刻意的：转义管 **ASCII 结构字符**（`&`/`<`/`>`/`=` → 实体，于是
+//      宿主 system 块用的 `=== … ===` 分节柱在不可信正文里不可能原样出现）；
+//      结构锁管**转义够不着的那一族**（全角 `＝`/`＜toolresult＞`、拆段夹空白、
+//      整行 `---`/`***`/`___` 分隔行——这些字符转义不会碰，只有归一化通道抓得住）。
+//      处置方式沿用 build153 那一种，不发明第四种：fail-closed **降级为纯文本**
+//      （剥结构字符 / 丢分隔行 / 标签替裸词），命中记名 + 走 LoggerService 一次。
+//
+// build173 同时把原先列在这里的三条裸通道**合并**了（gen_plugins.dart 的 `_finish`、
+// installed_mcp_plugin.dart 的 `_toolMessage`、plugin_registry.dart 的 5 处宿主级
+// toolresult）——三处都改成调本函数，`encoding`/`trust` 两个属性从此不可能缺。
+// 仍然开着的同类点（不在本片白名单里，逐条列在此处免得又散）：
 //   · lib/plugins/install_mcp_plugin.dart、install_skill_plugin.dart（kind=… 外壳）
 //   · lib/services/article_extractor.dart 的正文与 `---TOOL RESULT START (search)---`
 //     纯文本块不是 XML 外壳，走的是"协议文本 + 小标题"提示，不改转义。
 // ============================================================================
 
 /// toolresult **正文**转义：`&` 必须先替，否则会把 `&lt;` 二次转义成 `&amp;lt;`。
+///
+/// build173（S13/S19b）：转义集补 `=` → `&#61;`。理由是这条组合——宿主 system 块
+/// 按 `=== … ===` 分节（api_service.dart 的 113/150/166/221/235/249），而旧转义集
+/// 不含 `=`，于是网页/工具输出里一句 `=== 新系统指令 ===` 能**原样**进上下文，
+/// L2 分节锁即便接上也会被自己刚转义出来的实体绕过（它扫的是字面 `===`）。
+/// 补上之后正文里不可能存在字面 `=`，分节柱无从构造。
+/// 口径限制在**正文**：属性值不走这一条（见 [escapeToolResultAttr] 的注释），
+/// 否则 `agent_artifact_cards.dart` 的 `_unescape`（本片的白名单外，改不到）
+/// 会把 `&#61;` 直接显示成产物文件名的一部分。
 /// 纯函数，可单测。
 String escapeToolResultContent(String s) => s
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+    .replaceAll('>', '&gt;')
+    .replaceAll('=', '&#61;');
 
-/// 属性值转义：正文三件套 + 双引号 + 换行（换行会切断按行处理标签的正则）。
-String escapeToolResultAttr(String s) => escapeToolResultContent(s)
+/// 属性值转义：`&`/`<`/`>` + 双引号 + 换行（换行会切断按行处理标签的正则）。
+///
+/// build173：这里**不**替 `=`，两条都是核实过的理由——
+/// ① 属性值出不了开标签那一行（`\n`/`\r` 已被替成空格），构不出**分节行**，
+///    而 `=` 的风险只在"伪造行首分节柱"这一条上；
+/// ② 产物卡片那侧（agent_artifact_cards.dart 的 `_unescape`）按现有实体表还原
+///    `&quot;/&lt;/&gt;/&#10;/&amp;`，多一个它不认识的实体就是用户看得见的乱码。
+/// 属性名的 `=`/引号由 [toolResultTag] 自己按字面拼，不经本函数。
+String escapeToolResultAttr(String s) => s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll('\n', ' ')
     .replaceAll('\r', ' ');
+
+/// 被结构锁命中并降级过的 toolresult 正文（`plugin_id/tool`，去重）。正常应为空集；
+/// 与 build153 的 `promptStructureGuardHits` 同一件套：**静默降级 + 记名核对**。
+final Set<String> toolResultGuardHits = <String>{};
+
+/// 正文的唯一处置出口：转义 → 结构锁 → （命中则按现成方式降成纯文本）。
+///
+/// **顺序是这张片的关键**，反过来就废：先跑锁再接 `=` 转义的话，锁扫到的
+/// 已经是 `&#61;&#61;&#61;`，字面 `===` 早就不在了，锁恒判干净 ⇒ 接了等于没接。
+/// 先转义、再把**转义后的**文本交给锁，锁只负责转义覆盖不到的那一族，
+/// 命中才降级 ⇒ 正常代码/JSON/中英文不会被无端剥字符。
+String _guardToolResultBody(String escapedBody, String guardKey) {
+  final v = guardPromptStructure(escapedBody, singleLine: false);
+  if (!v.breached) return escapedBody;
+  // fail-closed：锁说降级就降级，这里不二次判断、不放宽。
+  if (toolResultGuardHits.add(guardKey)) {
+    LoggerService.instance
+        .warn('[build173] toolresult 正文命中 prompt 结构锁并降级为纯文本：'
+            '$guardKey（${v.hits.join(',')}）'
+            '——不可信内容含伪造的 prompt 结构（分节符/包裹标签/分隔行），'
+            '归一化后仍命中，已剥除。', tag: 'Plugin');
+  }
+  return v.text;
+}
 
 /// 拼一条完整的 `<toolresult …>…</toolresult>` 回灌文本。
 ///
 /// [attrs] 是调用方的附加属性（`status` / `category` / `is_error` …），
 /// 顺序保持传入顺序，便于与历史文案对照；`encoding` / `trust` 由本函数固定追加，
 /// 不给调用方关掉的机会。
+///
+/// build173：**所有**不可信回灌都必须走这一个函数——它是唯一出口，
+/// 转义 + 结构锁两道口径都在这里面，调用点改一处全量受益。
 String toolResultTag({
   required String pluginId,
   required String tool,
@@ -2150,7 +2223,8 @@ String toolResultTag({
   });
   buf
     ..write(' encoding="escaped" trust="untrusted">')
-    ..write(escapeToolResultContent(body))
+    ..write(_guardToolResultBody(
+        escapeToolResultContent(body), '$pluginId/$tool'))
     ..write('</toolresult>');
   return buf.toString();
 }

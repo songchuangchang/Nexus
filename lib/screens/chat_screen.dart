@@ -2252,6 +2252,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   reactAutoMode: widget.conversation.reactAutoMode,
                   reasoningEffort: widget.conversation.reasoningEffort,
                   largeContextMax: widget.conversation.largeContextMax,
+                  // build173 第三片：档位镜像进 🧠 弹层（只传原值，语义仍由 services 层判）
+                  subagentMode: widget.conversation.subagentMode,
                   pluginHintMode: _pluginHintConfig.mode,
                   pluginHintManualCount:
                       _effectiveManualSelectedCount(registry),
@@ -2282,6 +2284,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   onLongPressReact: () => _showConversationSettings(),
                   onReasoningEffortChanged: _saveReasoningEffort,
                   onLargeContextMaxChanged: _saveLargeContextMax,
+                  // build173 第三片：档位入口并进 🧠 点按弹层（长按仍进对话设置，一位没动）
+                  onSubagentModeChanged: _saveSubagentMode,
                   onTogglePluginHint: _togglePluginHint,
                   onEditPluginHint: _editPluginHint,
                   onModelChanged: _onModelChanged,

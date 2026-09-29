@@ -465,17 +465,20 @@ class LocalScanService {
 
     final trimmedUrl = rulesUrl.trim();
     if (!_isSafePublicUrl(trimmedUrl)) {
+      // B6（build173）：这一跳被拒**必须写进状态**。原来只 warn 就 return，
+      // prefetchRules 随后看见 remoteCount==0 便记 `ok_builtin_only` 并返回
+      // ok:true ⇒ 设置页亮绿勾 + "No remote rules, using builtin only"，
+      // 当面向用户谎报（安全审查设置页那条规则源根本没告诉他被拒过）。
+      // 码用现成的 DataPackReject.noSources.name（= 没有可用的源），不另造词表。
+      _lastSyncStatus =
+          '$rejectedStatusPrefix${DataPackReject.noSources.name}';
       _logger.warn('远程规则 URL 未通过安全校验，回落内置规则', tag: 'LocalScan');
       return builtin;
     }
 
     // v1.7.38：统一走 GitHubContentFetcher（对冲并发+成功记忆+超时拆分+全链路日志）
     try {
-      final body = await GitHubContentFetcher.fetchText(
-        trimmedUrl,
-        totalTimeout: const Duration(seconds: 20),
-        tag: 'scan-rules',
-      );
+      final body = await _fetchRulesBody(trimmedUrl);
       // S21（build172）：远程规则与三份数据包同闸——先过 evaluateDataPackPayload
       // （JSON 完整性 → sha256 → 版本基线 → minAppVersion → 非空），再解析合并。
       // 旧实现 fetchText 之后直接 jsonDecode 合并：默认源（jsdelivr 镜像，对全体
@@ -486,6 +489,10 @@ class LocalScanService {
         appVersion: kAppVersionConst,
       );
       if (!merge.accepted) {
+        // B6（build173）：闸门拒绝 = 远程规则这一跳**被拒**，不是"远程没有规则"。
+        // 词表直接取 DataPackReject 的枚举名（data_pack_protocol.dart:24），
+        // 与三份数据包同一口径；这里只加前缀，不新造一套词。
+        _lastSyncStatus = '$rejectedStatusPrefix${merge.reject.name}';
         _logger.warn(
             '远程规则未过闸门'
             '（${describeDataPackReject(merge.reject, detail: merge.detail)}），回落内置规则',
@@ -500,6 +507,12 @@ class LocalScanService {
       // S21/X11：闸门放行且解析合并成功才落「上次已应用的 dataVersion」基线；
       // 失败/拒绝绝不落（否则一次坏载荷把自己的版本钉进基线，挡住后面的正确版本）。
       await writeAppliedBaseline(_rulesBaselinePackId, merge.dataVersion!);
+      // B6（build173）：成功这一跳也要落状态。
+      // 需求「 getter 拿到的是最近一次而不是缓存旧值」的关键一刀：扫描那一路
+      // （_scan → _getEffectiveRules）不经 prefetchRules，原来只有失败会写串，
+      // 于是一次成功的扫描之后 UI 仍可能挂着上一跳的 rejected:…。这里覆盖掉，
+      // prefetchRules 随后再按 remoteCount 细化成 ok / ok_builtin_only。
+      _lastSyncStatus = 'ok';
       _logger.info(
           '远程规则拉取成功: ${merge.rules.length} 条 (v${merge.dataVersion})',
           tag: 'LocalScan');
@@ -508,6 +521,10 @@ class LocalScanService {
       return mergeRemoteRules(builtin, merge.rules,
           disableBuiltin: merge.disableBuiltin);
     } catch (e) {
+      // B6（build173）：拉取/落基线这一整跳异常 = 被拒，码用 fetchFailed
+      // （DataPackReject 里"源拉取失败"就是这一条），同样不另造词表。
+      _lastSyncStatus =
+          '$rejectedStatusPrefix${DataPackReject.fetchFailed.name}';
       _logger.warn('远程规则拉取异常: $e', tag: 'LocalScan');
     }
     _logger.warn('远程规则拉取失败，回落内置规则', tag: 'LocalScan');
@@ -730,12 +747,20 @@ class LocalScanService {
   }
 
   /// 清除远程规则缓存（设置页修改 URL 后调用）
-  static void clearCache() {
+  ///
+  /// S27（build173）：**rules 的基线也得跟着清**，原来只清了内存缓存 ⇒
+  /// 基线键 `dataPack.appliedBaseline.rules` 留在磁盘上。换源之后新源的
+  /// dataVersion 低于旧基线 ⇒ data_pack_protocol.dart 的闸恒判 notNewer ⇒
+  /// **新源的规则永远进不来**、静默停在内置那 12 条（可用性方向 = fail-closed）。
+  /// 口径与三个 DataPack 的 clearApplied 一致：清缓存 = 下次拉取视为首次。
+  /// 改 async 只为这一行 IO；两个调用点都已经在 async 上下文里。
+  static Future<void> clearCache() async {
     _remoteRulesCache = null;
     _remoteRulesFetchedAt = DateTime.fromMillisecondsSinceEpoch(0);
     _blacklistDomains = {};
     _blacklistSha256 = {};
     _lastSyncStatus = null;
+    await clearAppliedBaseline(_rulesBaselinePackId);
   }
 
   // ==========================================================================
@@ -745,8 +770,41 @@ class LocalScanService {
   static DateTime? _lastSyncTime;
   static String? _lastSyncStatus;
 
+  /// B6（build173）：拒绝类状态串的前缀。
+  ///
+  /// 完整形状 = `rejected:<DataPackReject.name>`（词表就是
+  /// `data_pack_protocol.dart:24` 那 9 个枚举名，本仓只有一份拒因口径，
+  /// 这里不新造第二套）。消费点两处：[prefetchRules] 的 `ok:false` 判据、
+  /// 安全审查设置页那一行的读数（`lastSyncStatus` 自 173 起才有人读）。
+  static const String rejectedStatusPrefix = 'rejected:';
+
+  /// 最近一次这一跳是否被拒（UI 判绿勾用，别让页面自己拼前缀字符串）。
+  static bool get lastSyncRejected =>
+      _lastSyncStatus?.startsWith(rejectedStatusPrefix) ?? false;
+
   static DateTime? get lastSyncTime => _lastSyncTime;
   static String? get lastSyncStatus => _lastSyncStatus;
+
+  /// B6（build173）：远程规则那一次 HTTP 的可注入点。
+  ///
+  /// 为什么要有：三个出口的判据此前只能钉"源码里有没有这一行"（教训 #50 那类
+  /// 锚点），钉不了状态串——真 HTTP 在单测里起不来。有了它，`prefetchRules`
+  /// 三个出口 + 设置页那一行都走真断言。口径与
+  /// `DataPackService.useFetcherForTest` 一致；传 null 恢复生产实现。
+  static Future<String> Function(String url) _rulesFetcher = _defaultRulesBody;
+
+  static Future<String> _defaultRulesBody(String url) =>
+      GitHubContentFetcher.fetchText(
+        url,
+        totalTimeout: const Duration(seconds: 20),
+        tag: 'scan-rules',
+      );
+
+  static void useFetcherForTest(Future<String> Function(String url)? fetcher) {
+    _rulesFetcher = fetcher ?? _defaultRulesBody;
+  }
+
+  static Future<String> _fetchRulesBody(String url) => _rulesFetcher(url);
 
   /// 手动触发远程规则同步（从 URL 拉取并缓存）
   static Future<({bool ok, String message})> prefetchRules(
@@ -755,11 +813,24 @@ class LocalScanService {
       _lastSyncStatus = 'empty_url';
       return (ok: false, message: 'URL is empty');
     }
-    clearCache();
+    await clearCache();
     try {
       await _getEffectiveRules(rulesUrl);
-      final remoteCount = _remoteRulesCache?.length ?? 0;
+      // B6（build173）：这一跳被闸门/校验/异常任一条拒了 ⇒ 不许再报
+      // `ok_builtin_only`（那支的原文案是 "No remote rules, using builtin
+      // only"，配上绿勾就是谎报：明明被拒，却说"远程没有规则"）。
+      // 拒绝不抛异常，所以必须显式回读状态串——这是唯一的判据来源。
+      final status = _lastSyncStatus;
       _lastSyncTime = DateTime.now();
+      if (status != null && status.startsWith(rejectedStatusPrefix)) {
+        return (
+          ok: false,
+          message: 'Remote rules rejected '
+              '(${status.substring(rejectedStatusPrefix.length)}), '
+              'builtin rules in use'
+        );
+      }
+      final remoteCount = _remoteRulesCache?.length ?? 0;
       if (remoteCount > 0) {
         _lastSyncStatus = 'ok';
         return (ok: true, message: 'Synced $remoteCount remote rules');

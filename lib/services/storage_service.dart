@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/api_account.dart';
 import '../models/api_config.dart';
@@ -24,6 +25,22 @@ import '../utils/context_compaction_drop.dart';
 import 'live_task_wiring.dart';
 import 'logger_service.dart';
 import 'secret_store.dart';
+
+/// build173（用户批准的方案 C）：AI 自动写长期记忆的**总闸** —— SharedPreferences 的键，
+/// **只在这里定义一次**（与 `kBackgroundRunAllowedKey` / `kLiveNotificationsEnabled`
+/// 「设置页与落库点读同一把 key」是同一条规矩）。
+///
+/// ## 默认值是 `true`，理由写在这里免得下一次有人"顺手改成 false"
+/// 三家的消费档都是默认开（Claude `on by default for Free, Pro, Max`、
+/// Copilot `Saving memories is On by default`；只有企业/医疗这类受监管档才默认关）。
+/// 我们这条能力从 build92 起就一直在跑，所以**关着会静默削掉既有功能** ——
+/// 默认值的判据是"不改变既有行为"：这道闸的意义是把控制权交给他，不是替他改行为。
+///
+/// ## 这一位只管"AI 自己伸手写"，不碰用户自己写的
+/// 语义是**停写不删**（对齐 Claude 的 `Pause memory` 与 OpenAI 的
+/// `关闭记忆不会删除以往的聊天`）：关掉之后已入库的记忆原样还在、照样读得到，
+/// 手动那条路（`source` 非 `auto`）一个字都不受影响。
+const String kAutoMemoryEnabledKey = 'auto_memory_enabled';
 
 class StorageService extends ChangeNotifier {
   StorageService._internal();
@@ -2318,6 +2335,49 @@ class StorageService extends ChangeNotifier {
 
   // ── v1.7.38 build90（待办⑧⑨）：全局/项目记忆 + 斜杠命令 CRUD ──
 
+  /// build173（方案 C）：读自动记忆总闸，**全仓只有这一处读**（形状照
+  /// `lib/utils/background_run_switch.dart:36` —— 一个键 + 一处读，页面与落库点
+  /// 读同一把 key，不许各自 `getBool` 一遍再漂成两种口径）。
+  ///
+  /// 缺省即 `true`：这道闸没被拨过 = 与 build92 以来逐字节同行为（AI 照旧会记），
+  /// 理由见 [kAutoMemoryEnabledKey]。读不到 prefs 时调用方按 `true` 处理才对，
+  /// 但这里不吞异常 —— 异常说明的是环境坏了，不是"用户想关"。
+  static Future<bool> autoMemoryEnabled({SharedPreferences? prefs}) async {
+    final p = prefs ?? await SharedPreferences.getInstance();
+    return p.getBool(kAutoMemoryEnabledKey) ?? true;
+  }
+
+  /// 落盘总闸（只有设置页那一行由用户亲手拨时才调）。
+  static Future<void> setAutoMemoryEnabled(bool enabled,
+      {SharedPreferences? prefs}) async {
+    final p = prefs ?? await SharedPreferences.getInstance();
+    await p.setBool(kAutoMemoryEnabledKey, enabled);
+  }
+
+  /// **总闸的唯一拦截点**：AI 自动写记忆这一类（`source == 'auto'`）在总闸关掉时
+  /// 不写库；用户自己写的（`manual` / `conversation:<id>`）一律照旧落库（反向闸）。
+  ///
+  /// 为什么只在这里拦、四个调用点一个都不加 `if`：自动写记忆的落点是 4 处 / 2 文件
+  /// （`lib/plugins/builtin_plugins.dart:1193`、`:1229`，直聊路径
+  /// `lib/screens/chat_screen_message.dart:946`、`:964`），四条路最后都汇进
+  /// [saveProjectMemory] / [saveGlobalMemory] 这两个函数。在调用点各写一遍就是
+  /// "同一事实住四个文件"，下一次加第五条路必然漏（教训 #62 同族）。
+  ///
+  /// 语义是**停写不删**：关掉之后库里的条目一条都不动、仍读得到（对齐 Claude
+  /// `Pause memory` 与 OpenAI `关闭记忆不会删除以往的聊天`）。
+  ///
+  /// 日志走 [LoggerService]（不是 `debugPrint` —— release 包里它是 no-op，
+  /// 那条"为什么这条没进来"就永远取不到证）。只打表名与 id，不打正文：
+  /// 记忆内容本身就是要交给用户保管的东西。
+  Future<bool> _autoMemoryGateAllows(
+      String source, String table, String id) async {
+    if (source != 'auto') return true;
+    if (await autoMemoryEnabled()) return true;
+    _logger.warn('自动记忆总闸=关，这条 auto 未入库：$table id=$id',
+        cat: LogCat.db, tag: 'AutoMemory');
+    return false;
+  }
+
   // —— 全局记忆 ——
   static const int maxGlobalMemories = 50;
   static const int maxProjectMemoriesPerProject = 50;
@@ -2365,6 +2425,11 @@ class StorageService extends ChangeNotifier {
   }
 
   Future<void> saveGlobalMemory(GlobalMemory m) async {
+    // build173（方案 C）：总闸拦在落库前最后一步 —— 一处拦住四个 auto 写入点，
+    // 四个调用点各自一个 `if` 都不加（判据只住这一处，见 [_autoMemoryGateAllows]）。
+    if (!await _autoMemoryGateAllows(m.source, 'global_memories', m.id)) {
+      return;
+    }
     final database = await db;
     // N5：insert + 裁剪同事务（原子）。超限时只删 source=auto 且未 pinned 的最旧条
     await database.transaction((txn) async {
@@ -2417,6 +2482,13 @@ class StorageService extends ChangeNotifier {
   }
 
   Future<void> saveProjectMemory(ProjectMemory m) async {
+    // build173（方案 C）：与 [saveGlobalMemory] 同一道闸、同一个判据
+    // （[_autoMemoryGateAllows]），project 这一路也在库里 —— 两条 save 路径就是
+    // 四个 auto 落点的共同咽喉，所以闸只需要一处。
+    if (!await _autoMemoryGateAllows(
+        m.source, 'project_memories', m.id)) {
+      return;
+    }
     final database = await db;
     // N5：insert + 裁剪同事务（原子）。每项目独立上限，只删 source=auto 最旧条
     await database.transaction((txn) async {

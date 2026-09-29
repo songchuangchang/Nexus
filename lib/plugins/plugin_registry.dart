@@ -16,6 +16,10 @@ import 'plugin_interface.dart';
 import 'plugin_context.dart';
 import 'installed_dynamic_plugin.dart';
 import 'installed_mcp_plugin.dart';
+// build173（S13/S19b）：宿主级裸 toolresult 通道收口到同一个信封构造函数。
+// 只 show 一个纯函数 ⇒ 与 builtin_plugins.dart 的既有 import 形成环，Dart 允许
+// 且这里只在运行时调用（不在任何顶层初始化器里读它的成员），无初始化成环风险。
+import 'builtin_plugins.dart' show toolResultTag;
 
 class PluginRegistry extends ChangeNotifier {
   final Map<String, ReActPlugin> _registry = {};
@@ -688,8 +692,13 @@ class PluginRegistry extends ChangeNotifier {
         pluginContext.addMessage(ChatMessage.create(
           conversationId: pluginContext.assistantMsg.conversationId,
           role: MessageRole.user,
-          content:
-              '<toolresult plugin_id="$pluginId" tool="$toolName" is_error="true">宿主熔断：该工具在本消息内已连续失败 $streak 次，判定不可用。不要再调用，直接基于已有信息如实答复用户。</toolresult>',
+          content: toolResultTag(
+            pluginId: pluginId,
+            tool: toolName,
+            attrs: const {'is_error': 'true'},
+            body: '宿主熔断：该工具在本消息内已连续失败 $streak 次，判定不可用。'
+                '不要再调用，直接基于已有信息如实答复用户。',
+          ),
         ));
         pluginContext.logger.warn(
             '[MCP] circuit open for $circuitKey after $streak consecutive failures',
@@ -718,8 +727,16 @@ class PluginRegistry extends ChangeNotifier {
         pluginContext.addMessage(ChatMessage.create(
           conversationId: pluginContext.assistantMsg.conversationId,
           role: MessageRole.user,
-          content:
-              '<toolresult plugin_id="$pluginId" tool="mcp_call" is_error="true">未找到插件「$pluginId」。提示：内置插件（目录里 nexus.builtin.* 开头）可直接输出其原生标签调用（如 <log_query category="ERROR" />）；MCP 连接器用安装后的完整 id（如 amap）。请停止重试并如实告知用户</toolresult>',
+          content: toolResultTag(
+            pluginId: pluginId,
+            tool: 'mcp_call',
+            attrs: const {'is_error': 'true'},
+            // build173：正文里的 `<log_query …>` 是**给模型看的字面示例**，走信封后
+            // 按不可信正文转义（示例仍然读得出，但它再也构造不出真标签）。
+            body: '未找到插件「$pluginId」。提示：内置插件（目录里 nexus.builtin.* 开头）'
+                '可直接输出其原生标签调用（如 <log_query category="ERROR" />）；'
+                'MCP 连接器用安装后的完整 id（如 amap）。请停止重试并如实告知用户',
+          ),
         ));
         return false;
       }
@@ -737,8 +754,13 @@ class PluginRegistry extends ChangeNotifier {
         pluginContext.addMessage(ChatMessage.create(
           conversationId: pluginContext.assistantMsg.conversationId,
           role: MessageRole.user,
-          content:
-              '<toolresult plugin_id="${target.metadata.id}" tool="mcp_call" is_error="true">插件「${target.metadata.name}」当前被停用。请如实告知用户该能力不可用；用户可到 插件管理 手动开启。</toolresult>',
+          content: toolResultTag(
+            pluginId: target.metadata.id,
+            tool: 'mcp_call',
+            attrs: const {'is_error': 'true'},
+            body: '插件「${target.metadata.name}」当前被停用。'
+                '请如实告知用户该能力不可用；用户可到 插件管理 手动开启。',
+          ),
         ));
         return false;
       }
@@ -872,13 +894,23 @@ class PluginRegistry extends ChangeNotifier {
         pluginContext.addMessage(ChatMessage.create(
           conversationId: pluginContext.assistantMsg.conversationId,
           role: MessageRole.user,
-          content:
-              '<toolresult plugin_id="${primary.metadata.id}" tool="mcp_call" is_error="true">MCP 调用失败：$shaped</toolresult>',
+          content: toolResultTag(
+            pluginId: primary.metadata.id,
+            tool: 'mcp_call',
+            attrs: const {'is_error': 'true'},
+            // build173：`$shaped` 是**上游原文**（MCP 服务/插件异常），此前原样
+            // 拼进外壳 ⇒ 一句 `</toolresult>` 就能越栏伪造第二条工具结果。
+            body: 'MCP 调用失败：$shaped',
+          ),
         ));
         return false;
       }
-      final errorMsg =
-          '<toolresult plugin_id="${primary.metadata.id}" tool="$type" is_error="true">插件执行失败: $shaped</toolresult>';
+      final errorMsg = toolResultTag(
+        pluginId: primary.metadata.id,
+        tool: type,
+        attrs: const {'is_error': 'true'},
+        body: '插件执行失败: $shaped',
+      );
       pluginContext.addMessage(ChatMessage.create(
         conversationId: pluginContext.assistantMsg.conversationId,
         role: MessageRole.user,
