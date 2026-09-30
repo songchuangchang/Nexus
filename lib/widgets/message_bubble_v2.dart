@@ -620,8 +620,15 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
     }
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      // build175 平板遍历：这一行原本是 `Row(mainAxisSize.min)`。156 那一轮据此把
+      // 命中区做成"只补高不撑宽"，代价是四个键横向都停在 25.9~26.3dp（Material
+      // 下限 48dp），并在注释里明确写着"横向留给『操作行改可换行 Wrap』那类设计变更"。
+      // 这一刀就是那一刀：键横向抬到 48 之后，由**外层换行**消化宽度，而不是让键
+      // 去迁就一行。助手气泡本身是 `Container(width: double.infinity)`，
+      // Wrap 铺满的是同一宽度，所以未换行时视觉与改前逐像素相同。
+      child: Wrap(
+        spacing: 0,
+        runSpacing: 0,
         children: [
           if (widget.message.content.isNotEmpty)
             MessageActionButton(
@@ -1856,13 +1863,28 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
               m.cacheWriteTokens != null ||
               m.cacheHitTokens != null) &&
           !_showTokenDetail)
+        // build175 平板遍历：这一条实测 41.5×11.0dp（语义树里它就是那行 11 号字的
+        // 高度）—— 等于"只有字本身能点"，手指压在它上下 1dp 之外就不响应。
+        // 两处都是必要的，缺一个就是假修复：
+        //  · `behavior: opaque`：GestureDetector 默认 deferToChild，只在**子节点自己**
+        //    那块地方响应；不写这一句，补出来的空白只是把行撑高，仍然点不中。
+        //  · 高度用 padding 给、外层再垫一个 48 的下限：下限保证字号缩放后仍然 ≥48，
+        //    而这里**不用 Center** —— metaRow 是 Wrap，Center 会把条目撑到整行宽，
+        //    每个条目各占一行，等于把这一行拆散。
         GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _showTokenDetail = true),
-          child: Text(
-            zh ? 'token 详情' : 'token details',
-            style: style.copyWith(
-              decoration: TextDecoration.underline,
-              decorationStyle: TextDecorationStyle.dotted,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 18),
+              child: Text(
+                zh ? 'token 详情' : 'token details',
+                style: style.copyWith(
+                  decoration: TextDecoration.underline,
+                  decorationStyle: TextDecorationStyle.dotted,
+                ),
+              ),
             ),
           ),
         ),

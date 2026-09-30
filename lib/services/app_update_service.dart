@@ -200,11 +200,13 @@ class AppUpdateService {
         sha256: apkSha256,
       );
     } catch (e) {
-      // build145：降到 WARN 且不写堆栈。原因不是「不重要」，而是**这条在正常配置下必然发生**：
-      // 更新清单在私有仓库里（用户 09-22 明确「仓库不用管」），于是每次启动几乎注定 403/404，
-      // 以 ERROR 面孔长期占着日志 ⇒ 真出问题（上游真断了）时反而看不出来。
+      // build145：降到 WARN 且不写堆栈——"检查更新没成"是一次可恢复的网络事件，不是崩溃；
+      // 以 ERROR 面孔长期占着日志，反而会在真出问题（上游真断了）时看不出来。
       // 「过度上报」与「静默」是同一枚硬币的两面（build141 观察 B 同一族）。
-      _logger.warn('AppUpdate: 检查更新失败（多为仓库私有/离线所致，属预期）: $e',
+      // build175 订正：这里原来的理由是"更新清单在私有仓库里、每次启动几乎注定 403/404"——
+      // 那是 build171 之前的世界。端点已经统一指向公开仓（见 repo_endpoints.dart），
+      // 再留着这句就是在替一次真实失败开脱，所以连日志里那句"属预期"一起删了。
+      _logger.warn('AppUpdate: 检查更新失败: $e',
           tag: 'AppUpdate');
       return const AppUpdateInfo(
         currentVersion: current,

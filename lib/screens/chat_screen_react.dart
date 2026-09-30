@@ -300,13 +300,30 @@ extension ChatScreenReActExt on _ChatScreenState {
       ..retryIndex = userMsg.retryIndex
       ..addReasoning(ReasoningStep(
         'thinking',
+        // build175 平板遍历：这句在 22 屏里反复被截（登记表 1.7.117 第 36 行）。
+        // 它在手机上同样被截 ⇒ 是**长度**问题不是宽度问题，所以按砍字处理，
+        // 不动 `_lastStepSummary` 那道 24 字的显示上限（那是宽度侧的杠杆）。
+        // 砍的是哪几处，以及为什么这几处可以砍：
+        //  · 「自动档：AI 自决轮次，上限 $maxRounds 轮」里，"上限 N 轮"这一条
+        //    同一屏上已经由岛那句「准备中 · 上限 $maxRounds 轮」说过一次
+        //    （见本文件 :209）—— 同一事实全组只说一遍，这里删掉重复。
+        //  · 留下的「轮次由 AI 定」才是这一句独有的信息（谁在决定跑几轮）。
+        //  · hedge 保住：「是否需要」原样留着 —— 这一刻确实还不知道要不要搜，
+        //    这句是真话，不许为了缩短把它改成肯定式。
+        //  · 去掉句尾的「…」：它不是省略号用法，是把整句写成"未完待续"，
+        //    而折叠标题的 maxLines:1 又会把真的截断也用「…」表示 —— 两种「…」
+        //    混在一行里，用户和判据都分不出哪一个是被截的。
+        // 判据不许顺手改掉：`ReasoningStep.isThinkingPlaceholderOnly` 认的是
+        // `contains('正在思考是否需要联网搜索')` / `startsWith('Thinking whether to search')`
+        // 这两个**词干**（lib/models/chat_message.dart:135），砍的是词干后面的修饰，
+        // 所以新的两句仍然算"纯进度占位"，不会被当成一步真思考（见 build142 那组断言）。
         isAuto
             ? (isZh
-                ? '正在思考是否需要联网搜索…（自动档：AI 自决轮次，上限 $maxRounds 轮）'
-                : 'Thinking whether to search the web... (Auto: AI decides, up to $maxRounds rounds)')
+                ? '正在思考是否需要联网搜索（轮次由 AI 定）'
+                : 'Thinking whether to search the web (AI sets the rounds)')
             : (isZh
-                ? '正在思考是否需要联网搜索…'
-                : 'Thinking whether to search the web...'),
+                ? '正在思考是否需要联网搜索'
+                : 'Thinking whether to search the web'),
         phase: 'phase1_think',
         round: 1,
       ));

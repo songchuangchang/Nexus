@@ -52,3 +52,39 @@ const String kRepoRulesUrlDefault = '${kRepoJsDelivrBase}rules.json';
 /// 但它对刚推送的 commit 有缓存延迟，所以 raw 必须留在后面而不是省掉。
 List<String> repoFileSources(String fileNameAtRoot) =>
     ['$kRepoJsDelivrBase$fileNameAtRoot', '$kRepoRawBase$fileNameAtRoot'];
+
+/// 迁到公开仓**之前**对外用过的那些仓库名（未公开的私有仓，一条端点都不拼它）。
+///
+/// 为什么这份文件里还留着旧仓名：源码树在 build171 收口时把它删干净了，
+/// 但**存量装机的 SharedPreferences 里还在**——`data_pack_service.dart` 读持久值时
+/// 是"存了什么就用什么"，于是老装机 2026-09-30 仍在打私有仓（平板现读：
+/// `api_templates 全部 1 个源失败 … a11@main/api_templates.json → HTTP 404`）。
+/// 迁移判定需要的那一点历史信息只住在这里，调用方不许自己写字面量：
+/// 本文件头的立项理由就是"漏改的那一处会从静默无害变成静默说谎"，
+/// 而"旧地址散进第二个文件"是同一种漏。
+const Set<String> kRepoLegacyPrivateNames = {'a11'};
+
+/// 纯判定：这个 URL 指的是不是**我们自己的旧私有仓库**。
+///
+/// 两种形状都要覆盖（锚都是 `/<owner>/<旧仓名>`，旧仓名后面必须正好落到段界）：
+///  - jsdelivr 镜像：`…/gh/<owner>/a11@main/<file>` ⇒ 段界是 `@`；
+///  - raw 直连：`…/<owner>/a11/main/<file>` ⇒ 段界是 `/`；
+///  - 镜像代理把整条 raw 地址接在自己的路径后面（`…/https://raw…/<owner>/a11/main/…`）
+///    走的还是 raw 那一条锚，照样命中。
+/// 段界**之外**不算命中：`…/<owner>/a11backup/…` 是别人的仓库，不是被迁走的那一个；
+/// 新仓库名（`kRepoName`）永远不在旧仓名集合里 ⇒ 今天的有效源不可能被误判成旧的。
+///
+/// 只用来**读旧数据**，不参与任何端点拼接。GitHub 的 owner/仓库名只含字母数字与
+/// `._-`，这三样在正则里都不是元字符 ⇒ 这里直接插值；真往集合里加带元字符的名字，
+/// 先改这一处。
+bool isLegacyPrivateRepoSource(String url) {
+  final re = _legacyPrivateRepoSourceRe;
+  return re != null && url.isNotEmpty && re.hasMatch(url);
+}
+
+final RegExp? _legacyPrivateRepoSourceRe = kRepoLegacyPrivateNames.isEmpty
+    ? null
+    : RegExp(
+        '/$kRepoOwner/(?:${kRepoLegacyPrivateNames.join('|')})(?=[/@]|\$)',
+        caseSensitive: false,
+      );

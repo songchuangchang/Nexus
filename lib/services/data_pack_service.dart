@@ -248,7 +248,17 @@ class DataPackService extends ChangeNotifier {
     final due = <_Pack>[];
     for (final p in _packs) {
       final stored = parseDataPackSources(prefs.getString(p.spec.urlKey));
-      p.sources = stored.isNotEmpty ? stored : List.of(p.spec.defaultSources);
+      // build175：持久值**不再无条件赢**。先把里面指向旧私有仓库的那几条摘掉，
+      // 再按"还有剩下什么"决定用持久值还是内置默认源。
+      // 根因（2026-09-30 19:0x 平板现读 logcat）：`api_templates 全部 1 个源失败 …
+      // …/gh/songchuangchang/a11@main/api_templates.json → HTTP 404`，而源码树里
+      // 已经没有 a11（build171 收进 repo_endpoints），默认源也是 2 条 ⇒ 用的不是默认值；
+      // 加上刷新成功那一跳把 `encodeDataPackSources(p.sources)` 写回同一个键
+      // （见本文件 `_refreshPackInner` 末尾），老装机就此永久钉在私有仓上，
+      // **只有全新安装**才拿得到公开仓那份签名载荷。
+      final kept = _dropLegacyPrivateSources(p, stored);
+      p.sources =
+          kept.isNotEmpty ? List.of(kept) : List.of(p.spec.defaultSources);
 
       final cachedAt =
           DateTime.tryParse(prefs.getString(p.spec.updatedKey) ?? '');
@@ -353,6 +363,33 @@ class DataPackService extends ChangeNotifier {
     } else {
       await _refreshSome(due, prefs);
     }
+  }
+
+  /// build175：把持久值里指向**旧私有仓库**的源逐条摘掉，其余原样返回。
+  ///
+  /// 判定口径必须写窄：命中的是「旧私有仓的 owner/仓库名段」
+  /// （[isLegacyPrivateRepoSource]，旧仓名只在 `repo_endpoints.dart` 列一次），
+  /// **不是**「与今天的默认值不一样」。后者会顺手毁掉用户在 [setCustomSources] 里
+  /// 手填的源——那条路是有意支持的（G56），用户的值不该由一次升级迁移来替我决定。
+  ///
+  /// 摘掉时留一行 INFO：这条改动会把数据包页「生效源」那一栏显示的内容换掉，
+  /// 换得无声无息就是把「永远 404」翻译成「源列表突然对上了」——本文件自己的
+  /// 口径是「退避不能变成新的静默」（build145 那段），迁移同理。
+  /// 全空由调用方回落 [DataPackSpec.defaultSources]（这条函数只负责摘，不负责补）。
+  List<String> _dropLegacyPrivateSources(_Pack p, List<String> stored) {
+    if (stored.isEmpty) return const [];
+    final kept = <String>[];
+    final dropped = <String>[];
+    for (final s in stored) {
+      (isLegacyPrivateRepoSource(s) ? dropped : kept).add(s);
+    }
+    if (dropped.isEmpty) return stored;
+    _logger.info(
+        '${p.spec.id} 丢弃 ${dropped.length} 条旧私有仓库源'
+        '（私有仓不对任何人开放，取它恒 404 ⇒ 已迁至 $kRepoOwner/$kRepoName；'
+        '摘完为空时回落内置默认源）：${dropped.join(' → ')}',
+        tag: 'DataPack');
+    return kept;
   }
 
   /// 退避现场挤在 retryKey 的派生键里（见 `DataPackRetryStamp` 的注释）。
