@@ -10,7 +10,7 @@ library constants;
 const String kAppVersionConst = String.fromEnvironment(
   'APP_VERSION',
   defaultValue:
-            '1.7.116+173', // build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
+            '1.7.117+174', // build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
 );
 
 /// build115（typed 内核最小切片）：答案来源开关。
@@ -23,3 +23,43 @@ const String kAppVersionConst = String.fromEnvironment(
 ///
 /// 说明：本开关只影响「答案从哪来」，不影响流式显示 / 工具分发 / 净化链。
 const bool kUseTypedKernel = true;
+
+/// 热更载荷验签的**内置信任锚**：Ed25519 公钥，裸 32 字节 = 64 位十六进制小写。
+///
+/// 唯一所有者是本文件；消费点只有 `lib/services/pack_signature.dart` 一处。
+/// 它是 44 字节 SPKI DER（`302a300506032b6570032100` + 32 字节裸钥）的后 32 字节，
+/// 前缀已核对——**存裸钥不存 DER**：验签库吃的就是裸 32 字节，多一层 DER 只有两个
+/// 能写歪的地方（前缀抄错 / 切片 off-by-one），少一个。
+///
+/// 私钥不在仓库、不在本机、不参与任何构建步骤（用户自持）。因此
+/// ① 这里不存在"导出"路径，② 判据只能用测试现场造的一次性密钥对签样本，
+/// ③ 于是必须有反向锁钉住本常量 == 这 64 位十六进制，防止有人把锚换成自己的钥匙
+///    （锁在 `test/build174_pack_signature_test.dart` 的 ⑦ 组）。
+///
+/// 语义（fail-closed，见 `data_pack_protocol.dart` 的 `dataPackSignatureGate`）：
+/// 四条**远程**载荷（api_templates / builtin_prompts / mcp_catalog / rules）必须带
+/// 一把由这把公钥验得过的 `signature`，否则不应用、回落内置。APK 内的内置资产
+/// 走不到这道闸（它们由 APK 签名保护），这是有意的，见同一文件的 ⑤ 组反向闸。
+const String kDataPackSignaturePublicKeyHex =
+    '837ece0d7abc5c4e4ccdedd59f5c9cb80d04ebd16ecba8e28fb5e371563e15c4';
+
+/// **签发授权闸**的公钥（ECDSA P-256 公钥，DER 的 base64）——不是签名私钥，别混。
+///
+/// 分工：上面那把是"这份载荷是不是钥匙主人签的"（**验内容**，装在每个 APK 里）；
+/// 这一把是"这一次签发的授权票是不是路由器上的闸发的"（**验授权**，只在发版工具里用）。
+/// 闸的私钥住路由器 `/etc/pack-gate/gate.ec`，永不离开那台设备。
+///
+/// 为什么必须钉在代码里而不是放一个本地文件：票是**离线验**的，如果公钥从一个笔电上的
+/// 文件读，改那个文件就等于自己当了闸 ⇒ 这道闸当场失效。钉进仓 ⇒ 换闸公钥必须改代码、
+/// 过一次审查、重新出包，这正是要的那道"不能悄悄发生"。
+///
+/// 空串是**有意的初始状态**（2026-09-29 装到一半：路由器侧已就绪、闸密钥尚未生成）。
+/// 空 ⇒ `verifyTicketOffline` 直接拒（fail-closed）：没有可信公钥就一张票都不认。
+/// 跑完 `install_on_router.sh` 会打印 `GATE_PUB_DER_B64=…`，把那串填进来即可启用。
+///
+/// 2026-09-30 00:3x 已钉入实钥：GL-MT3600BE 上 `/etc/pack-gate/gate.pub` 的公钥，
+/// 由用户本人在 Git Bash 里跑 `deploy_gate.sh` 生成并贴回（**公钥可贴，secret 不可贴**）。
+/// 换这把 = 换闸，必须走代码审查；笔电本地改文件伪造不了（读的是这个常量）。
+const String kPackGatePublicKeyDerB64 =
+    'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGelM47sBVBsuyg6eZ5scM2qjnADGfS4rtZBw2ZnrF6Y/dn5TxWPsZdKemQKWqArJS6L/Pn/dbJGyoms+gHaSXg==';
+

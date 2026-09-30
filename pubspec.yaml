@@ -1,7 +1,7 @@
 name: aichat
 description: Nexus - Custom API AI Chat Client
 publish_to: 'none'
-version: 1.7.116+173  # build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
+version: 1.7.117+174  # build172：照片与截图的文字读取修好（编排/深研路径此前拿不到图内文字）；远程扫描规则改走数据闸门；自更新缺校验和时不再静默放行；模板 baseUrl 被远程改写要你确认；数据包更新提示改回事实。
 
 environment:
   sdk: ^3.5.0
@@ -43,6 +43,7 @@ dependencies:
   geolocator: ^14.0.2
   video_player: ^2.14.0
   webview_flutter: 4.14.1
+  cryptography: ^2.9.0
 
 dev_dependencies:
   flutter_test:

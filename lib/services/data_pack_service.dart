@@ -254,7 +254,10 @@ class DataPackService extends ChangeNotifier {
           DateTime.tryParse(prefs.getString(p.spec.updatedKey) ?? '');
       final cachedRaw = prefs.getString(p.spec.jsonKey);
       if (cachedRaw != null && cachedRaw.isNotEmpty) {
-        final check = evaluateDataPackPayload(
+        // build174：缓存重放也是"应用远程字节"。磁盘上的那份缓存同样不可信
+        // （能改缓存的人已经能改 APK 之外的任何东西），所以这条路径与刷新路径
+        // 过**同一个** [evaluateSignedDataPackPayload]——一处判据，两条路。
+        final check = await evaluateSignedDataPackPayload(
           rawJson: cachedRaw,
           baselineVersion: await readAppliedBaseline(p.spec.id),
           appVersion: _appVersion,
@@ -473,7 +476,7 @@ class DataPackService extends ChangeNotifier {
         continue; // 按序尝试下一个源（G54）
       }
 
-      final check = evaluateDataPackPayload(
+      final check = await evaluateSignedDataPackPayload(
         rawJson: body,
         baselineVersion: await readAppliedBaseline(p.spec.id),
         appVersion: _appVersion,
@@ -648,8 +651,9 @@ class DataPackService extends ChangeNotifier {
         p.pendingRaw ?? prefs.getString(DataPackPrefKeys.apiTemplatePendingRaw) ?? '';
     if (raw.isEmpty) return p.snapshot();
     // 确认前再过一次完整闸门：挂起期间基线可能已被别的路径推进，
-    // 绝不借「用户点了确认」绕过版本/校验闸。
-    final check = evaluateDataPackPayload(
+    // 绝不借「用户点了确认」绕过版本/校验闸。build174：这道复核同样含验签——
+    // 「用户点了确认」确认的是"我知道它改 baseUrl"，不是"我替信任锚签了字"。
+    final check = await evaluateSignedDataPackPayload(
       rawJson: raw,
       baselineVersion: await readAppliedBaseline(p.spec.id),
       appVersion: _appVersion,
@@ -792,12 +796,23 @@ class DataPackService extends ChangeNotifier {
       await _clearPending(p, prefs);
       return;
     }
-    final check = evaluateDataPackPayload(
+    final check = await evaluateSignedDataPackPayload(
       rawJson: raw,
       baselineVersion: await readAppliedBaseline(p.spec.id),
       appVersion: _appVersion,
       itemCountOf: p.spec.countItems,
     );
+    if (!check.accepted) {
+      // build174：过不了闸的挂起载荷**不恢复**。留着它只会画一张"确认了也不会应用"
+      // 的卡片——confirmPending 复核同一道闸、必然同样拒，那张卡是死路，
+      // 而界面上写着"等你确认"，读起来像"点一下就生效"。
+      await _clearPending(p, prefs);
+      _logger.warn(
+          '${p.spec.id} 挂起载荷未过闸（'
+          '${describeDataPackReject(check.reject, detail: check.detail)}），不恢复确认卡片',
+          tag: 'DataPack');
+      return;
+    }
     p.pendingRaw = raw;
     p.pendingDataVersion = check.dataVersion;
     p.pendingItemCount = check.itemCount;

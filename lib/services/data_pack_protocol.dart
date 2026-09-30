@@ -13,9 +13,20 @@
 //
 // sha256 自指问题的处置：摘要字段本身不参与摘要（dropKey='sha256'），
 // 且规范化=键排序 + 无空白，保证服务端脚本与客户端算法可对齐。
+//
+// build174（信任锚）：同一份规范化字节再多剥一个自指字段 `signature`，
+// 由 `pack_signature.dart` 用**内置 Ed25519 公钥**验签。生产入口从
+// [evaluateDataPackPayload] 换成 [evaluateSignedDataPackPayload]——顺序是
+// **验签最先**（`dataVersion`/`minAppVersion`/`sha256` 都是载荷自带的，
+// 未经鉴真的字段先说话等于让被检者决定怎么检它）。
+// 同步的 [evaluateDataPackPayload] **保留**且语义不变：它是"除验签以外的那半截闸"，
+// 只给纯逻辑单测和 `local_scan_service` 的解析层用；拿它当应用判据就是绕锚，
+// 由 build174 判据的 ⑥ 组结构锁盯着（生产两条应用路径里不得出现裸调用）。
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as crypto;
+
+import 'pack_signature.dart';
 
 /// 用户可见的包状态（任务书要求三态：内置 / 已更新 / 失败）。
 enum DataPackStatus { builtin, updated, failed }
@@ -30,6 +41,12 @@ enum DataPackReject {
   notNewer,
   minAppVersionTooHigh,
   sha256Mismatch,
+
+  /// build174：远程载荷没带 `signature` 字段（或值为空）。fail-closed ⇒ 不应用。
+  missingSignature,
+
+  /// build174：带了但过不了内置信任锚——格式不对、内容被改、或签名者不是钥匙主人。
+  badSignature,
   emptyPayload,
 }
 
@@ -210,13 +227,27 @@ String encodeDataPackSources(List<String> urls) =>
     parseDataPackSources(urls.join('\n')).join('\n');
 
 /// 规范化 JSON：递归按键排序、无空白。[dropKey] 用于剥掉自指摘要字段。
-String canonicalDataPackJsonForHash(Object? value, {String dropKey = 'sha256'}) {
+String canonicalDataPackJsonForHash(Object? value, {String dropKey = 'sha256'}) =>
+    canonicalDataPackJson(value, dropKeys: {dropKey});
+
+/// 规范化（键排序 + 无空白 + 剥掉 [dropKeys]）的**唯一实现**。
+///
+/// 两份真源必须共用量：sha256 闸剥 `sha256`、验签闸剥 `sha256` + `signature`，
+/// 若各写一遍 `norm`，任何一侧改了排序/空白/转义就会「签的字节 ≠ 验的字节」——
+/// 那种漂移只会表现成全量静默拒签，而拒签在界面上长得像"网络不好"。
+/// 漂移锁：`test/build174_pack_signature_test.dart` ⑦ 组断言
+/// 「sha256 闸与验签闸走同一个 norm」的等式（同一份输入、只差那一个字段）。
+///
+/// 已知边界（有意沿用既有语义）：[dropKeys] 是**递归**剥的，所以载荷内容里
+/// 任何一层叫 `sha256` / `signature` 的键都不参与摘要/签名。既有 sha256 闸
+/// 早就如此（`dropKey` 的递归就是它的特点），签名侧跟着同一份形状，服务端脚本按同规则算。
+String canonicalDataPackJson(Object? value, {Set<String> dropKeys = const {'sha256'}}) {
   Object? norm(Object? v) {
     if (v is Map) {
       final keys = v.keys.map((e) => e.toString()).toList()..sort();
       final out = <String, Object?>{};
       for (final k in keys) {
-        if (k == dropKey) continue;
+        if (dropKeys.contains(k)) continue;
         out[k] = norm(v[k]);
       }
       return out;
@@ -228,9 +259,105 @@ String canonicalDataPackJsonForHash(Object? value, {String dropKey = 'sha256'}) 
   return jsonEncode(norm(value));
 }
 
+/// 验签覆盖的那份规范字节（UTF-8）：**与 sha256 闸同一份规范化**，只多剥一个自指的
+/// `signature` 字段。签名方（用户手里的脚本）必须按同一规则算字节。
+///
+/// 两份自指字段的先后次序（写脚本的人只需要记这一句）：签名字节**不含** `sha256`
+/// 与 `signature`，摘要字节只**不含** `sha256` ⇒ 摘要看得见签名、签名看不见摘要 ⇒
+/// 无环：**先出签名，再把带签名的那份去算 sha256**。反过来先算 sha256 会得到一个
+/// 客户端永远验不过的组合（签名字节与最终载荷对不上）。
+List<int> canonicalDataPackBytesForSignature(Object? decoded) =>
+    utf8.encode(
+        canonicalDataPackJson(decoded, dropKeys: const {'sha256', 'signature'}));
+
+/// 从信封里取签名字段原文（顶层 `signature`）。非 Map / 缺字段 → null ⇒ [PackSignatureStatus.missing]。
+String? dataPackSignatureFieldOf(Object? decoded) =>
+    decoded is Map ? decoded['signature']?.toString() : null;
+
 /// UTF-8 文本的 sha256 十六进制小写。
 String sha256HexOf(String text) =>
     crypto.sha256.convert(utf8.encode(text)).toString().toLowerCase();
+
+/// build174：验签那一道闸的**唯一实现**（两条应用路径 + `rules.json` 那一路共用它）。
+///
+/// 返回 [DataPackReject]：`none` = 验过（或压根不是验签管的事，见下）；
+/// `missingSignature` / `badSignature` = 拒。
+///
+/// 为什么读不出 JSON 时返回 `none` 而不是拒：那种载荷该记的因是 `invalidJson`
+/// （既有闸已经会给），在这里抢下来只会多造一个同义拒因——本仓一份拒因口径。
+/// **应用侧**不受影响：坏 JSON 在下一段闸里同样过不去。
+Future<DataPackSignatureGate> dataPackSignatureGate(
+  String rawJson, {
+  String? anchorPublicKeyHex,
+}) async {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(rawJson);
+  } catch (_) {
+    return const DataPackSignatureGate(reject: DataPackReject.none);
+  }
+  final status = await verifyPackSignature(
+    canonicalBytes: canonicalDataPackBytesForSignature(decoded),
+    signatureHex: dataPackSignatureFieldOf(decoded),
+    anchorPublicKeyHex: anchorPublicKeyHex,
+  );
+  return switch (status) {
+    PackSignatureStatus.ok =>
+      const DataPackSignatureGate(reject: DataPackReject.none),
+    PackSignatureStatus.missing => const DataPackSignatureGate(
+        reject: DataPackReject.missingSignature,
+        detail: '载荷没有 signature 字段（远程热更需内置 Ed25519 公钥的签名）',
+      ),
+    PackSignatureStatus.malformed => const DataPackSignatureGate(
+        reject: DataPackReject.badSignature,
+        detail: 'signature 不是 64 字节的十六进制',
+      ),
+    PackSignatureStatus.invalid => const DataPackSignatureGate(
+        reject: DataPackReject.badSignature,
+        detail: 'signature 与规范字节/内置公钥对不上（内容被改过，或签名者不是钥匙主人）',
+      ),
+  };
+}
+
+/// [dataPackSignatureGate] 的结论（拒因 + 人话细节），与 [DataPackCheckResult] 分开：
+/// 它只回答"这份字节是不是那把钥匙签的"，版本/条数那些闸不归它管。
+class DataPackSignatureGate {
+  const DataPackSignatureGate({required this.reject, this.detail = ''});
+
+  final DataPackReject reject;
+  final String detail;
+
+  bool get accepted => reject == DataPackReject.none;
+}
+
+/// **生产闸序**（build174 起，两条应用路径与 `rules.json` 那一跳的唯一判据）。
+///
+/// 顺序：**① 验签 → ② JSON 完整性 → ③ sha256 → ④ 版本基线 → ⑤ minApp → ⑥ 非空**。
+/// 验签排第一的理由（与"版本字段本身就是载荷自带的"是同一条）：`dataVersion`、
+/// `minAppVersion`、`sha256` 都在被签的这份字节里，未鉴真的输入没有资格决定
+/// 自己被怎么检查；把它排到版本比较之后，等于给攻击者一个"改版本就能改动拒因文案"的
+/// 旁路 oracle，而那条旁路在界面上是可观测的（`rejected:` 状态串）。
+/// 代价：合法但版本过旧的载荷现在先报 `missingSignature`/`badSignature` —— 只有当
+/// 载荷**本来就 unsigned** 时才会看到这种换序，而那种载荷自 build174 起一律不应用。
+Future<DataPackCheckResult> evaluateSignedDataPackPayload({
+  required String rawJson,
+  required String baselineVersion,
+  required String appVersion,
+  required int Function(Object? decoded) itemCountOf,
+  String? anchorPublicKeyHex,
+}) async {
+  final gate =
+      await dataPackSignatureGate(rawJson, anchorPublicKeyHex: anchorPublicKeyHex);
+  if (!gate.accepted) {
+    return DataPackCheckResult.rejected(gate.reject, detail: gate.detail);
+  }
+  return evaluateDataPackPayload(
+    rawJson: rawJson,
+    baselineVersion: baselineVersion,
+    appVersion: appVersion,
+    itemCountOf: itemCountOf,
+  );
+}
 
 /// 一次载荷校验的结果。
 class DataPackCheckResult {
@@ -256,6 +383,14 @@ class DataPackCheckResult {
 ///
 /// [itemCountOf] 由每个包自己解释「有多少条有效条目」；返回 0 视为空包拒绝，
 /// 远程永远不能把客户端拉成空数据（G55）。
+///
+/// ⚠ build174 起这**不是**生产应用判据：它不看 `signature`。生产三条应用路径
+/// （缓存重放 / 远程刷新 / S1 确认后应用）与 `rules.json` 那一跳都必须走
+/// [evaluateSignedDataPackPayload]；直接拿本函数当"能不能应用"的结论 = 绕过信任锚，
+/// 由 `test/build174_pack_signature_test.dart` ⑥ 组的结构锁钉住（生产文件里
+/// 不得出现 `evaluateDataPackPayload(` 的裸调用）。本函数保留同步形态是有意为之：
+/// 它同时是纯逻辑单测的入口，而 `applyRemoteRulesPayload` 一类同步解析层还在用它，
+/// 改成 async 会把一批无关判据打成编译错误。
 ///
 /// X11（build172）：版本基准从 `appVersion` 改为**上次已应用的 dataVersion**
 /// （[baselineVersion]，由 `data_pack_baseline.dart` 每包持久化）。
@@ -356,6 +491,12 @@ String describeDataPackReject(DataPackReject reject,
     DataPackReject.sha256Mismatch => isZh
         ? 'sha256 校验不匹配（内容被篡改或截断）'
         : 'sha256 mismatch (tampered or truncated)',
+    DataPackReject.missingSignature => isZh
+        ? '缺少签名，已拒绝应用（远程热更有内置公钥验签，回落内置数据）'
+        : 'Missing signature, refused (built-in data kept)',
+    DataPackReject.badSignature => isZh
+        ? '签名未通过内置公钥验证（内容被篡改，或签名者不是钥匙持有者）'
+        : 'Signature does not verify against the built-in key (tampered, or wrong signer)',
     DataPackReject.emptyPayload => isZh
         ? '数据包内无有效条目，已拒绝用空数据覆盖内置'
         : 'No valid items, refused to overwrite built-in with empty data',

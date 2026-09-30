@@ -479,6 +479,22 @@ class LocalScanService {
     // v1.7.38：统一走 GitHubContentFetcher（对冲并发+成功记忆+超时拆分+全链路日志）
     try {
       final body = await _fetchRulesBody(trimmedUrl);
+      // build174（信任锚）：**验签排在最前**，且用的就是三份数据包那一道闸的同一个
+      // 实现（`dataPackSignatureGate`）——这里既不复制第二套判据，也不造第二个枚举：
+      // 拒因取 DataPackReject.missingSignature / badSignature，于是状态串自动长成
+      // B6 那套形状的 `rejected:missingSignature` / `rejected:badSignature`。
+      // 为什么排在 S21 那道闸之前：`dataVersion` 与 `sha256` 都在被签的字节里，
+      // 让未鉴真的字段先说话，等于让被检者决定自己被怎么检（并且给了一个
+      // "改版本号就能换拒因文案"的旁路 oracle）。
+      final signature = await dataPackSignatureGate(body);
+      if (!signature.accepted) {
+        _lastSyncStatus = '$rejectedStatusPrefix${signature.reject.name}';
+        _logger.warn(
+            '远程规则验签未过'
+            '（${describeDataPackReject(signature.reject, detail: signature.detail)}），回落内置规则',
+            tag: 'LocalScan');
+        return builtin;
+      }
       // S21（build172）：远程规则与三份数据包同闸——先过 evaluateDataPackPayload
       // （JSON 完整性 → sha256 → 版本基线 → minAppVersion → 非空），再解析合并。
       // 旧实现 fetchText 之后直接 jsonDecode 合并：默认源（jsdelivr 镜像，对全体
@@ -539,6 +555,11 @@ class LocalScanService {
   ///
   /// 从 [_getEffectiveRules] 的「body → 闸门 → 解析」逐字拆出：生产路径拉到
   /// body 后调用它；基线读写留在调用方（IO），这里只做纯判定。
+  ///
+  /// ⚠ build174 起这**不含验签**：验签在 [_getEffectiveRules] 里排在它之前
+  /// （`dataPackSignatureGate`，与三份数据包同一个实现）。保持同步形态是刻意的——
+  /// Ed25519 验签是 async，把它塞进本函数会让这一批同步单测整体编译不过。
+  /// 直接调用本函数**不等于**过了信任锚，判据见 build174 ⑥ 组的顺序结构锁。
   ///
   /// 闸门口径与 [evaluateDataPackPayload] 一致：基线为空（首次）不做新旧比较；
   /// 载荷严格更旧才拒；同版本视为幂等重放放行。[itemCountOf] 只防空包——
