@@ -12,10 +12,27 @@
     "skill_call": "<skill_call name=\"skill.xxx\">{可选 JSON}</skill_call>"
   },
   "triggerWords": {
-    "download": ["下载", "安装包", "APK", "保存到本地"],
-    "search": ["搜索", "查一下", "最新资讯", "实时数据"],
-    "ask_user": ["请选择", "需要确认", "请问你想要"],
-    "self_check": ["系统自检", "自检"]
+    "download": [
+      "下载",
+      "安装包",
+      "APK",
+      "保存到本地"
+    ],
+    "search": [
+      "搜索",
+      "查一下",
+      "最新资讯",
+      "实时数据"
+    ],
+    "ask_user": [
+      "请选择",
+      "需要确认",
+      "请问你想要"
+    ],
+    "self_check": [
+      "系统自检",
+      "自检"
+    ]
   },
   "plugins": [
     {
@@ -38,5 +55,6 @@
       "id": "nexus.builtin.answer",
       "promptProtocol": "【最终答案】使用说明：\n- 当你准备好给出最终回复时，使用 <answer>...</answer> 把内容包住。\n- 支持完整 Markdown；如前面做了搜索，可以引用搜索到的链接和来源名称。\n- 输出 <answer> 后循环立即结束，请确保把需要表达的内容一次写完。\n- 语言跟随用户：用户用中文回答中文，用户用英文回答英文，不要中英混杂。"
     }
-  ]
+  ],
+  "signature": "511752f17e2030877158feead315a09be236e542832e8f819f108cb3c6f86fbe3f1b1e9b743655b2bcb32bbad99370398b3faca2529ad64259593f82cd0d8805"
 }

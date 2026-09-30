@@ -12,7 +12,10 @@
       "category": "dangerous-code",
       "pattern": "(base64\\.(b64decode|decodebytes)|atob\\s*\\().{0,300}(eval\\s*\\(|exec\\s*\\(|os\\.system\\s*\\(|Function\\s*\\()",
       "enabled": true,
-      "targets": ["skill", "mcp"]
+      "targets": [
+        "skill",
+        "mcp"
+      ]
     },
     {
       "id": "LS-RMT-002",
@@ -24,5 +27,6 @@
       "enabled": true,
       "targets": []
     }
-  ]
+  ],
+  "signature": "0636b92bc4a681f42877e9ac9fda1d57c9a9e71aa91a29f20e0834f9e5f9d2b9bada6242de590bfd376a6a2fbf494e0e74abd8d0830d869a8af6a76a73934209"
 }
