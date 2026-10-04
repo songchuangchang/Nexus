@@ -281,6 +281,47 @@ List<Map<String, dynamic>> builtinAgentToolSchemas() => [
           },
         }, ['content']),
       ),
+      // build180（刀二·内置浏览器四动作，FC 通道）。
+      // **这张表四行常驻**（跨表锁 ⑦ 按源码扫这张表，半张表就是违例）；用户 09-28 口径
+      // ①「默认关 ⇒ 显式开启之后才注册工具」兑现的位置不在这里，而在**交进 FC 请求之前**
+      // 那一步——`web_browser_plugins.dart` 的 `filterAgentToolsByBrowserFlag()`。
+      // 本函数是同步的，读不到 prefs；硬在这里判就会造出第二份判据。
+      // schema 里**没有任何** cookie/localStorage/截图/执行 JS 的口子——
+      // 工具面只作用于内置浏览器自身，碰不到文件系统/记忆/API Key（研究文档 §六.1）。
+      _tool(
+        'web_navigate',
+        '在 App 内的内置浏览器打开一个 https 页面（首次访问某个域名会请用户确认）。'
+        '导航之后要用 web_read 读页面，不要凭地址栏猜内容。结果回灌新页标题与 URL。',
+        _obj({
+          'url': {'type': 'string', 'description': '完整 https 地址'},
+        }, ['url']),
+      ),
+      _tool(
+        'web_read',
+        '序列化内置浏览器当前页：可见正文块 + 可交互元素清单（每个带 idx，供 web_act 定位）。'
+        '约 12000 字符上限，超出只给视口附近并标注省略了多少。'
+        '密码框只标记 needs-human，值不进上下文。接管交还后必须先读一次再动手。',
+        _obj({}, []),
+      ),
+      _tool(
+        'web_act',
+        '对 web_read 清单里的某个元素执行动作（idx 取那次读取给出的序号）。'
+        '页面一变（导航/提交/后退/人工接管）序号即作废，必须重新 web_read。',
+        _obj({
+          'idx': {'type': 'integer', 'description': 'web_read 给出的元素序号'},
+          'action': {
+            'type': 'string',
+            'enum': ['click', 'input', 'clear'],
+            'description': 'click=点击；input=填值（需 value）；clear=清空'
+          },
+          'value': {'type': 'string', 'description': 'input 时要填入的文本'},
+        }, ['idx', 'action']),
+      ),
+      _tool(
+        'web_back',
+        '内置浏览器后退一页（history back）。之后必须 web_read 再动手。',
+        _obj({}, []),
+      ),
     ];
 
 // ---------------------------------------------------------------------------
@@ -489,6 +530,22 @@ AgentAction? _actionFromSingleCall(
         'title': (args['title'] ?? '').toString(),
         'overwrite': (args['overwrite'] == true).toString(),
       }, source: 'tools');
+    // build180（刀二）：内置浏览器四动作（与标签通道 <web_…/> 同一个插件分发，
+    // 字段键必须与 parseReActOutput 的 webMatch 分支逐一对齐：url/idx/action/value）。
+    case 'web_navigate':
+      return AgentAction('web_navigate', {
+        'url': (args['url'] ?? '').toString(),
+      }, source: 'tools');
+    case 'web_read':
+      return const AgentAction('web_read', {}, source: 'tools');
+    case 'web_act':
+      return AgentAction('web_act', {
+        'idx': (args['idx'] ?? '').toString(),
+        'action': (args['action'] ?? 'click').toString(),
+        'value': (args['value'] ?? '').toString(),
+      }, source: 'tools');
+    case 'web_back':
+      return const AgentAction('web_back', {}, source: 'tools');
     case 'mcp_call':
       final arguments = args['arguments'];
       return AgentAction('mcp_call', {

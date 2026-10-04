@@ -58,6 +58,15 @@ class MessageActionButton extends StatelessWidget {
       ),
     );
     if (tooltip == null) return child;
-    return Tooltip(message: tooltip!, child: child);
+    // build177：`Tooltip.message` 只挂成语义节点上的一个 tooltip 属性，
+    // **不会作为文字进 `uiautomator` 的语义树** ⇒ 平板机械在"复制成功后"读不到任何变化
+    // （登记表 #128 的 J27 那条红就是这么来的：`_copied` 已经把图标换成勾、
+    // tooltip 也换成"已复制"，但树上那一格一字未动＝反馈存在却没人能证明它发生过）。
+    // 把同一句话再作为 label 挂上去：读屏也跟着念"已复制"，不只是给机械用的旁证。
+    return Semantics(
+      label: tooltip,
+      button: true,
+      child: Tooltip(message: tooltip!, child: child),
+    );
   }
 }

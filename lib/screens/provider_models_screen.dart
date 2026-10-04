@@ -337,7 +337,12 @@ class _ProviderModelsScreenState extends State<ProviderModelsScreen> {
                 ),
                 if (live.isNotEmpty)
                   AppSectionCard(
-                    title: isZh ? '账号里拉到的其它模型（$live.length）' : 'Other models from your account (${live.length})',
+                    // build177：原来 zh 支写的是 `（$live.length）`——`$live` 只吃变量本身，
+                    // `.length）` 是字面文本，于是屏上真印出「…其它模型（[a, b, …].length）」
+                    // （平板 J30 的 `absent` 新闸命中 `'.length）'` 抓到的）。en 支一直是对的。
+                    title: isZh
+                        ? '账号里拉到的其它模型（${live.length}）'
+                        : 'Other models from your account (${live.length})',
                     children: [
                       for (final id in live)
                         _modelTile(

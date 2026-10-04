@@ -66,6 +66,23 @@ String _urlOr(Object? v, String fallback, String emptyFallback) {
   return v;
 }
 
+/// build176（#129）：规则源的持久值里，指向**已迁走的旧私有仓**的那一条退回默认。
+///
+/// 立项事实（2026-10-01 09:5x，平板 1.7.118/2175 现读语义树）：安全审查页那一行仍写着
+/// `https://fastly.jsdelivr.net/gh/songchuangchang/a11@main/rules.json`，而源码树里早就
+/// 没有 a11 字面量 ⇒ 与 #126 **同一个根因**（"存了什么就用什么"），只是这一条住在
+/// `web_search_configs` 表里，`DataPackService._dropLegacyPrivateSources` 够不到它。
+/// 后果不是"少一行日志"：恒 404 ⇒ **远程规则包在老装机上从未生效过**，
+/// 而界面上既不念失败、也不念成功（J25 那一格五句全缺）。
+///
+/// 判定复用 [isLegacyPrivateRepoSource]（旧仓名只在 `repo_endpoints.dart` 列一次），
+/// 口径写窄到"旧私有仓的那一段"：用户手填的**非**旧仓自定义源必须原样留下
+/// （G56 有意支持自定义源，不许顺手毁掉），空串/缺列/非字符串仍走 [_urlOr] 的既有口径。
+String _rulesUrlOr(Object? v) {
+  final s = _urlOr(v, _defaultRulesUrl, _defaultRulesUrl);
+  return isLegacyPrivateRepoSource(s) ? _defaultRulesUrl : s;
+}
+
 /// 通用搜索配置（单一配置，简单 KV 存 SQLite 就够了）
 class WebSearchConfig extends ChangeNotifier implements SecretBearing {
   /// 总开关：false 时所有联网搜索功能禁用
@@ -252,10 +269,10 @@ class WebSearchConfig extends ChangeNotifier implements SecretBearing {
         mobsfEndpoint: m['mobsfEndpoint'] as String? ?? '',
         enableApkSecurityScan: (m['enableApkSecurityScan'] as int? ?? 0) == 1,
         enableLocalScan: (m['enableLocalScan'] as int? ?? 1) == 1,
-        localScanRulesUrl: _urlOr(
-            m['localScanRulesUrl'], _defaultRulesUrl, _defaultRulesUrl),
-        // ↑ 同上：原来末尾是 `m['localScanRulesUrl'] as String`，非字符串直接抛。
+        localScanRulesUrl: _rulesUrlOr(m['localScanRulesUrl']),
+        // ↑ build145：原来末尾是 `m['localScanRulesUrl'] as String`，非字符串直接抛。
         // 空串与"没有这一列"都退回默认规则地址（口径不变）。
+        // build176（#129）：多退一步——持久值指旧私有仓时也退回默认，见 [_rulesUrlOr]。
         virusTotalApiKey: m['virusTotalApiKey'] as String? ?? '',
         enableVirusTotalScan: (m['enableVirusTotalScan'] as int? ?? 0) == 1,
         mobsfApiKey: m['mobsfApiKey'] as String? ?? '',

@@ -106,6 +106,34 @@ WebControlState webNoteUserUrlChange(WebControlState state, String url) {
 bool webAiActionAllowed(WebControlState state) =>
     !state.aiControlPaused && !state.awaitingPageRead;
 
+/// 「这一页算不算坏了」——navigate 与 read **共用**这一条判据（第七轮·会话面第 4 条）。
+///
+/// 过去两处各写各的：navigate 只看 `failure != null`，read 还额外要求
+/// 「一个可交互元素都没有」。于是同一条轨迹里能同时出现「这一页打不开」与
+/// 「这一页有 20 个可点元素」两条互斥事实——模型要么重试同一地址（三次后被宿主停机），
+/// 要么把坏页当真。本层文件头那句「文案统一了、判据没统一」说的就是这一格。
+///
+/// `interactiveCount == null` 表示**还没读过这一页**（navigate 那一刻正是这种）：
+/// 那时没有第二个读数，只能按失败本身判。给了读数就要求它也是 0——
+/// 一页真读得出东西时不该吓唬模型说它没加载（那是 read 原来那条 reason 的正当内核）。
+bool webPageIsBroken({
+  required String? mainFrameFailure,
+  required int? interactiveCount,
+}) {
+  if (mainFrameFailure == null) return false;
+  if (interactiveCount == null) return true;
+  return interactiveCount == 0;
+}
+
+/// 「web_read 这一跳该不该让位给人工」（第七轮·会话面第 8 条）。
+///
+/// 会话层原来手拼 `!aiActionAllowed && _control.aiControlPaused`：既摸了字段（本层口径
+/// 是「判断住这里」），又把两条判据焊成一个与式——`webAiActionAllowed` 的语义将来一变
+/// （例如再纳入一档"域名待确认"），那个与式会静默退化成"只拒接管"，而插件向模型承诺的
+/// 是「接管期间任何动作都会被退回」。判据搬进来，调用点只传自己已经算好的两个布尔。
+bool webReadYieldToHuman({required bool allowed, required bool paused}) =>
+    !allowed && paused;
+
 /// 不许动时回灌给模型的话（研究文档 §五.2 的「用户正在手动操作，请等待」）。
 ///
 /// 返回 null = 许可。**两种拒因分开说**，因为模型要做的事不同：
@@ -232,6 +260,17 @@ bool webDomainNeedsConfirm({
   return !confirmedHosts.map(webHostKey).contains(key);
 }
 
+/// 「这一条浏览器会话」的收回（第七轮·入口面第 2 条）。
+///
+/// 弹窗那格写的是"本次会话记住"，而那份名单挂在 `BrowserSession.instance` 单例上，
+/// 过去**全仓没有任何清空入口**：用户按「结束」关掉浏览器页、再让 AI 打开同一个站，
+/// 不再被问一次——一次点击的授权覆盖此后所有对话，且无处查看、无处撤销
+/// （口径「能关就能看」在这一格没兑现）。会话层文件头本来就写着
+/// 「作用域是这一条浏览器会话（用户没关页面就一直有效）」，那句话当时是**旧的**。
+/// 收回点选在页面关掉那一刻（`unbindController`）。改成"直到退出 App"是另一种选择，
+/// 那要文案与授权面一起放宽、由用户点头，不在这一格。
+Set<String> webForgetConfirmedDomains() => <String>{};
+
 /// 「本次会话记住」：折叠出新集合（不可变，调用点替换自己的字段）。
 Set<String> webRememberDomain({
   required Set<String> confirmedHosts,
@@ -318,4 +357,96 @@ String webCircuitBreakNotice(String reason, {required bool zh}) {
           ? '页面可能很慢或卡住了，不要再继续操作浏览器；请基于已读到的内容答复用户，并如实说明还有几步没走完。'
           : 'The page may be slow or stuck — stop driving the browser, answer from what has already been read, and say plainly which steps were left undone.');
   return '$head $tail';
+}
+
+/// AI 派发之后，这一串导航要不要**继续跟**（浏览器会话的链路判据，第五轮浏览器扫描第 1 条）。
+///
+/// 住在刀一而不是会话层：`browser_session.dart` 文件头那条口径写的是"接管/重读/域名/
+/// 密码/熔断的**判断**全在 `utils/web_session_state.dart`，这里只把它们按顺序串起来"。
+/// 上一版我把这个判断写成了会话层的 `static` 成员＝自己打了自己的口径（第六轮第 4 条）。
+///
+/// 三个入参各挡一件真事：
+///  · `movedWhileWaiting`——等"这一跳完成"的那段时间里又起了新导航（短链、meta refresh、
+///    onload 里 `location.replace`）。旧写法只在完成**之后**才开始取样，这一段整个看不见；
+///  · `movedInQuiet`——完成之后的安静窗里又起了新导航；
+///  · `hops < maxHops`——**必须有上限**：没有它，一个每 800 毫秒自刷新的页面会把 AI
+///    窗口永远钉着，用户真上手也判不出来，那是把一种死锁换成另一种死锁。
+///
+/// 已知边界（没在这一版收掉，记 182）：`waitUntilSettled` 是**超时不抛**的，所以
+/// 20 秒都没报"完成"的那一形里，本函数仍会跟着"没动"收窗——要彻底判"是谁引起的这次
+/// URL 变化"，得给状态层加"最近一次 AI 派发"的时间戳，而不是靠窗口开合。
+bool webNavChainContinues({
+  required bool movedWhileWaiting,
+  required bool movedInQuiet,
+  required int hops,
+  required int maxHops,
+}) {
+  if (hops >= maxHops) return false;
+  return movedWhileWaiting || movedInQuiet;
+}
+
+/// `web back` 这一跳收尾时该做哪四件事——**一张表说了算**（第八轮扫描第 3 条）。
+///
+/// 为什么要把判断搬进来：这四件事原来散在 `back()` 的四处**不同**写法上
+/// （`failed` 那位挂了代际、两条**写**没挂、`reread` 恒真、回话按 `can` 分岔），
+/// 散着写迟早漂成互相打脸——盘上当时就是那一形：
+/// 日志写 `reread=1`（"必须重读"）而回话写「当前仍是这一页」，
+/// 模型照回话直接动手就吃 `reject_reread`，照日志重读就白烧一步。
+/// 搬成一张表之后，四种组合各有一格判据，改任何一位都要红一次。
+///
+///  · `ok`＝落进日志的"退成了没有"（派发有没有发生）；
+///  · `reread`＝日志那一位"下一步必须重读"；
+///  · `invalidateSnapshot`＝**真的**去作废 `_lastSnapshot` 与 `awaitingPageRead`；
+///  · `failureCounts`＝`_mainFrameFailure` 讲的是不是**这一跳**的事；
+///  · `lostTrack`＝回话要不要明说"观察断了"（会话换了，屏幕上是哪一页我不知道）。
+///
+/// `can=false` 那一行页面根本没动 ⇒ 不作废旧快照、也不要求重读（旧快照仍是这一页的，
+/// 模型可以直接换别的动作）；`sameGeneration=false` 那一行**只停写**：
+/// 迟到的这一跳不许作废**新会话**那份可信快照，否则 AI 会"重读再动手"，
+/// 动在用户正在操作的那一页上。
+({bool ok, bool reread, bool invalidateSnapshot, bool failureCounts, bool lostTrack})
+    webBackOutcome({
+  required bool can,
+  required bool sameGeneration,
+}) {
+  return (
+    ok: can,
+    reread: can,
+    invalidateSnapshot: can && sameGeneration,
+    failureCounts: can && sameGeneration,
+    lostTrack: !sameGeneration,
+  );
+}
+
+/// 一次导航的"目标"归一化键：主机（小写、去 IPv6 方括号、去尾点）＋**端口**＋
+/// 路径（空路径算 `/`，只差一个尾斜杠算同一条）＋查询串＋片段（`#`）。
+///
+/// 判"这一跳是不是落到了别处"用它，不用字符串相等：平台读回来的那串常带尾斜杠，
+/// 而模型写的是裸域名（第八轮扫描第 7 条）。也不许把端口与片段省掉——
+/// `https://x:8443` 与 `https://x` 是两个站点，`#/cart` → `#/login` 是 SPA 里
+/// 最常见的"把你弹去登录"，省了就是**该报没报**。
+/// 空 query（`?`）与无 query 算同一条，否则每次都会谎报一次转走。
+/// 解析不出来（`normalizeLaunchUri` 给 null）返回空串：空串与空串相等＝"没转走"，
+/// 这一形调用点会另外按"读不回地址"处理，不靠这个键。
+String webLaunchTargetKey(String raw) {
+  final uri = normalizeLaunchUri(raw).uri;
+  if (uri == null) return '';
+  var path = uri.path;
+  if (path.isEmpty) {
+    path = '/';
+  } else if (path.length > 1 && path.endsWith('/')) {
+    path = path.substring(0, path.length - 1);
+  }
+  final query = (uri.hasQuery && uri.query.isNotEmpty) ? '?${uri.query}' : '';
+  final fragment =
+      uri.hasFragment && uri.fragment.isNotEmpty ? '#${uri.fragment}' : '';
+  return '${webHostKey(uri.host)}:${uri.port}$path$query$fragment';
+}
+
+/// 只取"主机＋端口"那一截：域名许可是按主机点的（`webHostKey` 自己不含端口），
+/// 而"落到别的站点"要连端口一起看，所以这里比许可那一层多一位。
+String webLaunchHostKey(String raw) {
+  final uri = normalizeLaunchUri(raw).uri;
+  if (uri == null) return '';
+  return '${webHostKey(uri.host)}:${uri.port}';
 }

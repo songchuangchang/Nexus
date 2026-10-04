@@ -17,6 +17,8 @@ import 'chat_screen.dart';
 import 'api_config_screen.dart';
 import 'conversation_search_screen.dart';
 import '../widgets/quick_access_drawer.dart';
+import '../ui/app_preview.dart';
+import '../ui/app_when.dart';
 import '../services/biometric_service.dart';
 import '../ui/app_skeleton.dart';
 import '../utils/app_snackbar.dart';
@@ -532,6 +534,35 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     return cfg.model.trim();
   }
 
+  /// build182（#159 第四条）：模型标签那一个小盒子**只此一处**。
+  ///
+  /// 原来它内联在"无草稿"那一支里 ⇒ 一条对话一旦有了草稿，标签就整块消失，
+  /// 读作"这条对话没绑模型"。草稿与标签是两件不相干的事实，不该互相挡。
+  /// 空标签仍然整块不占位（`SizedBox.shrink`），与改动前一致。
+  Widget _modelBadge(Conversation conv) {
+    final label = _modelLabelFor(conv);
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 10,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
@@ -736,68 +767,44 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                             ),
                             // v1.7.31：有草稿时显示草稿预览（带图标提示）
                             // build101（B9）：无草稿时，副标题右侧挂模型标签
-                            subtitle: _drafts[conv.id] != null
-                                ? Row(
-                                    children: [
-                                      Icon(Icons.edit_note,
-                                          size: 14,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .tertiary),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          '${_drafts[conv.id]}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
+                            // build182（#159）：两分支**都**挂模型标签（原来只有非草稿那支挂 ⇒
+                            //  同一条对话在"有草稿/无草稿"之间跳一下，标签就消失，读作"模型没了"）；
+                            //  副标题一律走 [AppPreview.of]（星号/代码块不再原样上屏）；
+                            //  右侧那一格走 [AppWhen.listRow]（原来只有 `hour:minute`，
+                            //  上周那条也写着 `9:05`，且 hour 不补零 ⇒ 一列两种宽度）。
+                            subtitle: Row(
+                              children: [
+                                if (_drafts[conv.id] != null) ...[
+                                  Icon(Icons.edit_note,
+                                      size: 14,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiary),
+                                  const SizedBox(width: 4),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    _drafts[conv.id] != null
+                                        ? AppPreview.of(_drafts[conv.id],
+                                            maxChars: 40)
+                                        : AppPreview.of(conv.lastMessage,
+                                            emptyText:
+                                                l.tr('noConversations')),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _drafts[conv.id] != null
+                                        ? TextStyle(
                                             color: Theme.of(context)
                                                 .colorScheme
                                                 .tertiary,
                                             fontStyle: FontStyle.italic,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          conv.lastMessage ??
-                                              l.tr('noConversations'),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (_modelLabelFor(conv).isNotEmpty) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets
-                                              .symmetric(
-                                              horizontal: 5, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .surfaceContainerHighest,
-                                            borderRadius:
-                                                BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            _modelLabelFor(conv),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
+                                          )
+                                        : null,
                                   ),
+                                ),
+                                _modelBadge(conv),
+                              ],
+                            ),
                             // v1.7.31：置顶从左滑改为 trailing 图标按钮（避免与抽屉手势冲突）
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -826,7 +833,10 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                                   },
                                 ),
                                 Text(
-                                  '${conv.updatedAt.hour}:${conv.updatedAt.minute.toString().padLeft(2, '0')}',
+                                  // build182（#159 第三条）：原来这里自己拼 `hour:minute`，
+                                  // 上周那条也写着 `9:05`（且 hour 不补零 ⇒ 一列两种宽度）。
+                                  // 现在走全仓唯一的时间口径 [AppWhen.listRow]。
+                                  AppWhen.listRow(conv.updatedAt, isZh),
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ],
@@ -882,6 +892,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                 ),
       floatingActionButton: FloatingActionButton(
         onPressed: _createConversation,
+        tooltip: l.tr('newChat'),
         child: const Icon(Icons.add),
       ),
     );

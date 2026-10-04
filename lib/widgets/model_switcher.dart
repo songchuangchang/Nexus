@@ -116,8 +116,14 @@ class ModelSwitcher extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.panel),
         border: Border.all(color: cs.appBorder),
       ),
-      child: PopupMenuButton<Object>(
-        tooltip: isZh ? '切换模型' : 'Switch model',
+      child: Semantics(
+        // build183（#36）：读屏标签补角色前缀。原来这枚筹码只把裸模型名送进语义树，
+        // 听不出「这是干什么的控件」，自动化也只能按形状猜锚（#35 那条脆弱锚的根因）。
+        // 可见文字一个字没动，label 是**加**在父节点上，子节点仍在树里。
+        button: true,
+        label: isZh ? '切换模型：$cleanName' : 'Switch model: $cleanName',
+        child: PopupMenuButton<Object>(
+          tooltip: isZh ? '切换模型' : 'Switch model',
         onSelected: (v) => _onSelected(v, context),
         itemBuilder: (ctx) => _buildItems(ctx, cs),
         child: Row(
@@ -146,6 +152,7 @@ class ModelSwitcher extends StatelessWidget {
               color: cs.appTextSub,
             ),
           ],
+        ),
         ),
       ),
     );

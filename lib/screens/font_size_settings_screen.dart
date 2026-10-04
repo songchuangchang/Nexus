@@ -73,8 +73,12 @@ class FontSizeSettingsScreen extends StatelessWidget {
                                   fsp.setScale(FontSizeProvider.defaultScale),
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(horizontal: 8),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            // build177：原来这两行（`Size.zero` ＋ `shrinkWrap`）＝**手写把
+                            // Material 的 48dp 命中区撤掉**，平板量到 54.1×11.0（登记表 #128 的
+                            // 漏网两处之一，用户 10-01 明确要"自行修复"）。48 由 minimumSize 给，
+                            // 不塞进字号里——命中区与视觉大小是两件事。
+                            minimumSize: const Size(48, 48),
+                            tapTargetSize: MaterialTapTargetSize.padded,
                           ),
                           child: Text(l.tr('fontSizeReset'),
                               style: TextStyle(

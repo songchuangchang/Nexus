@@ -36,6 +36,7 @@ import 'plugins/plugin_registry.dart';
 import 'plugins/builtin_plugins.dart';
 import 'utils/app_snackbar.dart';
 import 'utils/frame_probe.dart';
+import 'ui/app_shell.dart';
 // build167：设置里那道「愿意后台化」总闸（持久化位 + "通知/岛肯不肯用"的唯一判据）。
 // 消费点：本文件的 `_initLiveTask`（冷启动问不问系统要权限）与
 // `screens/general_settings_screen.dart`（那一组的三行都读同一份判据）。
@@ -469,11 +470,23 @@ class _AIChatAppState extends State<AIChatApp> with WidgetsBindingObserver {
                 // v1.7.29: textScaler 必须在 MaterialApp.builder 内注入；
                 // 包在 MaterialApp 外层会被 WidgetsApp 内部 MediaQuery(fromView) 覆盖，字体缩放失效
                 // v1.7.26: 生物识别锁全局门（builder 位于 Navigator 之上，覆盖所有路由/页面）
+                // build182（#160）：[AppWindowChrome] 落在**同一层、且在最外**——
+                //  整窗背景与系统条避让是全 App 唯一的所有者，所以它必须包得住
+                //  锁页（`_BiometricGate` 自己那一屏）与路由栈里的每一页。
+                //  它只**抬** `MediaQuery.padding`（取 padding 与 systemGestureInsets 的较大者），
+                //  所以今天所有 `SafeArea`/`ListView` 的自动避让口径不变；读数落一条
+                //  `tag: Chrome` 日志＝装机后判"这台机到底报了什么"的唯一通道。
                 builder: (context, child) => MediaQuery(
                   data: MediaQuery.of(context).copyWith(
                     textScaler: TextScaler.linear(fsp.scale),
                   ),
-                  child: _BiometricGate(child: child),
+                  child: AppWindowChrome(
+                    readout: (r) => LoggerService.instance.info(
+                      r.toLine(),
+                      tag: 'Chrome',
+                    ),
+                    child: _BiometricGate(child: child),
+                  ),
                 ),
                 title: 'Nexus',
                 scaffoldMessengerKey: rootScaffoldMessengerKey,

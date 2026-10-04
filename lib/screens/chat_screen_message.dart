@@ -362,7 +362,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
     // 这里接着用它 —— 岛上那一行的行 id 就是 `userMsg.id`，两边必须是同一个对象。
     // 自动用首条消息设置对话标题
     if (widget.conversation.title == 'New Chat') {
-      final newTitle = text.length > 30 ? '${text.substring(0, 30)}...' : text;
+      final newTitle = AppPreview.titleFrom(text);
       await storage.updateConversationTitle(widget.conversation.id, newTitle);
       widget.conversation.title = newTitle;
       // build101（D4）：开启后首轮回答完成时用 AI 生成更贴切的短标题
@@ -1078,7 +1078,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
       _followBottomIfNeeded();
 
       if (widget.conversation.title == 'New Chat' && _messages.length <= 3) {
-        final title = text.length > 30 ? '${text.substring(0, 30)}...' : text;
+        final title = AppPreview.titleFrom(text);
         await storage.updateConversationTitle(widget.conversation.id, title);
       }
     } catch (e, st) {
@@ -2495,8 +2495,7 @@ extension ChatScreenMessageExt on _ChatScreenState {
     final cfg = _currentSessionModel ?? _apiConfig;
     if (cfg == null) return;
     final convId = widget.conversation.id;
-    final expected =
-        userText.length > 30 ? '${userText.substring(0, 30)}...' : userText;
+    final expected = AppPreview.titleFrom(userText);
     unawaited(() async {
       try {
         final api = context.read<ApiService>();

@@ -1,7 +1,7 @@
 name: aichat
 description: Nexus - Custom API AI Chat Client
 publish_to: 'none'
-version: 1.7.118+175  # build175：老装机记住的旧私有仓下载地址在启动时被摘掉（摘空才回落内置公开仓源），远程数据包热更从此真能生效；消息下方四个动作键与「token 详情」的触摸区补到 48dp；「思考过程」标题砍掉重复字；检查更新失败的日志不再写「属预期」。
+version: 1.7.128+185  # build175：老装机记住的旧私有仓下载地址在启动时被摘掉（摘空才回落内置公开仓源），远程数据包热更从此真能生效；消息下方四个动作键与「token 详情」的触摸区补到 48dp；「思考过程」标题砍掉重复字；检查更新失败的日志不再写「属预期」。
 
 environment:
   sdk: ^3.5.0
@@ -23,6 +23,7 @@ dependencies:
   http: ^1.2.2
   crypto: ^3.0.7
   flutter_markdown: ^0.7.4
+  flutter_math_fork: ^0.7.4  # build179（#135）LaTeX 渲染器：纯 Dart＋随包 KaTeX 字体，零联网、零新平台依赖
   markdown: ^7.3.1
   provider: ^6.1.2
   uuid: ^4.5.1

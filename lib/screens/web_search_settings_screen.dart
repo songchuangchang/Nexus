@@ -278,28 +278,37 @@ class _WebSearchSettingsScreenState extends State<WebSearchSettingsScreen> {
             InkWell(
               onTap: () => _openProviderUrl(cfg.provider.officialUrl),
               borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.open_in_new,
-                        size: 14, color: colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        zh
-                            ? '访问官网（注册 / 查 API Key）'
-                            : 'Official site (signup / API key)',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
+              // build177：命中区实测 159.2×**21.7** → 高 ≥48（登记表 #128 漏网两处之二）。
+              // `InkWell` 的可点范围就是它 child 的尺寸，所以补高只能补在这一层——
+              // 改 Icon 的 size 或字号都不算修，那是视觉大小，不是命中区。
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.open_in_new,
+                            size: 14, color: colorScheme.primary),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            zh
+                                ? '访问官网（注册 / 查 API Key）'
+                                : 'Official site (signup / API key)',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),

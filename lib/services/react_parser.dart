@@ -71,6 +71,13 @@ const List<String> kReActTagNames = [
   // 若真机出现「用户要 HTML 进度条却被剥」，改名只需动本表 + 两处协议文案（解析分支认
   // [kProgressTagName]，不再有第二份正则）。
   'progress',
+  // build180（刀二）：内置浏览器四个动作（总闸 browser_feature_flag 默认关）。
+  // 漏登记的后果照旧是「标签被当纯文本吞掉、插件从不被 dispatch」——
+  // 跨表一致性由 test/build176_browser_wiring_lock_test.dart 钉住（①–⑩ 十张表）。
+  'web_navigate', // <web_navigate url="https://…" /> 打开页面（过域名闸）
+  'web_read', // <web_read /> 序列化当前页（12k 上限 + 视口优先）
+  'web_act', // <web_act idx="7" action="click|input|clear" value="…" />
+  'web_back', // <web_back /> history back
 ];
 
 /// 由 [kReActTagNames] 构建的标签检测正则：`<标签名` 后必须紧跟空白 / `>` / `/>`，
@@ -191,6 +198,12 @@ const List<String> kReActControlTagNames = [
   // 模型把 <progress> 写进 <answer> 里时，answer 必须只剩给用户看的结论
   // （那句话已经由 reasoningSteps 通道单独呈现，见 kProgressNoteStepKind）。
   'progress',
+  // build180（刀二）：浏览器四动作同属内部控制标签，误入 answer 必须剥掉
+  // （与 [kReActTagNames] 同步登记，两张表都要有——漏一张就是第 9 次同型复发）。
+  'web_navigate',
+  'web_read',
+  'web_act',
+  'web_back',
 ];
 
 final RegExp _anyTagOpen = RegExp(
@@ -323,6 +336,12 @@ bool isZeroOutputRound(
     // 属「有反馈的轮」——不得计入 O9 零产出空转（否则 4 轮后被强制收尾，
     // 把 thinking 原文当答案发出）。
     'unknown_tool_call',
+    // build180（刀二）：浏览器四个动作每次都带回页面标题/URL/序列化正文，
+    // 属「真实执行并带回新信息」，不算空转（漏了会被 O9 误判并注入约束噪音）。
+    'web_navigate',
+    'web_read',
+    'web_act',
+    'web_back',
   };
   if (answerStreamLen > 0) return false;
   return !pieces.any((p) => productive.contains(p['type']));
@@ -1053,6 +1072,13 @@ const Set<String> kRoundActionTypes = {
   'ws_make_file',
   // G37：不可识别工具块同样会回灌教学 toolresult，模型必须再给一轮答案
   'unknown_tool_call',
+  // build180（刀二）：浏览器四动作都回灌 toolresult（页面序列化正文/动作结果），
+  // 模型必须再给一轮答案。漏登记的病灶正是 build124 真机那一类：
+  // `<answer>过渡语</answer><web_navigate/>` 会把过渡语当结论定稿。
+  'web_navigate',
+  'web_read',
+  'web_act',
+  'web_back',
   // build164（#82）**刻意不含** `progress`：阶段小结不回灌 toolresult、也不改变
   // 轮次终态。若把它算作动作，`<answer>结论</answer><progress>…</progress>` 这种
   // 正常写法就会触发 judgeRoundTerminal 的"动作之前的 answer 是过渡语"规则，
@@ -1157,6 +1183,10 @@ RoundTerminalVerdict judgeRoundTerminal(List<Map<String, String>> pieces) {
 ///   - memory_delete: <memory_delete scope="global|project" key="..." />  (N8 build94 新增)
 ///   - get_location: <get_location />  (build106 新增，设备 GPS 精确定位，无属性)
 ///   - ip_locate: <ip_locate />  (build104 U3 新增，IP 城市级定位，无属性；build106 补解析接线)
+///   - web_navigate: <web_navigate url="https://…" />  (build180 刀二，内置浏览器开页)
+///   - web_read  : <web_read />  (build180 刀二，序列化当前页，无属性)
+///   - web_act   : <web_act idx="7" action="click|input|clear" value="…" />  (build180 刀二)
+///   - web_back  : <web_back />  (build180 刀二，history back)
 ///
 /// N9（build94）：memory_write / memory_delete / todo 兼容「配对写法」——
 /// 自闭合 `<tag ... />` 之外，也接受成对 `<tag ...></tag>` 与裸开标签 `<tag ...>`
@@ -1537,6 +1567,41 @@ List<Map<String, String>> parseReActOutput(String raw) {
           }
           i += close.end;
         }
+      }
+      out.add(piece);
+      continue;
+    }
+
+    // build180（刀二）：<web_navigate url="https://…" /> / <web_read /> /
+    // <web_act idx="7" action="click|input|clear" value="要填的文字" /> /
+    // <web_back />（属性协议见 docs/RESEARCH_内置浏览器可行性…§4.1）。
+    // 形状照抄上面的 wsMatch 分支：属性段必须允许引号内出现 `>`
+    // （`url="https://x/a>b"`、`value="if (a > b)"` 都是真实页面文案），
+    // 否则两通道（标签 / FC）解析出的字段必然不一致（G64 验收点同款）。
+    final webMatch = RegExp(
+      r'<(web_navigate|web_read|web_act|web_back)'
+      r'\b((?:[^>"]|"[^"]*")*)(/?)>',
+      caseSensitive: false,
+    ).matchAsPrefix(s, i);
+    if (webMatch != null) {
+      if (buf.isNotEmpty) {
+        final t = buf.toString().trim();
+        if (t.isNotEmpty) out.add({'type': 'thinking', 'content': t});
+        buf.clear();
+      }
+      final piece = <String, String>{'type': webMatch.group(1)!.toLowerCase()};
+      final webAttrsRaw = webMatch.group(2) ?? '';
+      for (final key in const ['url', 'idx', 'action', 'value']) {
+        final m = RegExp('$key="([^"]*)"', caseSensitive: false)
+            .firstMatch(webAttrsRaw);
+        if (m != null) piece[key] = _wsAttrValue(m.group(1)!);
+      }
+      i = webMatch.end;
+      // N9 兼容：配对/裸开写法（<web_act …>…</web_act>）正文一律忽略
+      if (webMatch.group(3) != '/') {
+        final close = RegExp('</${webMatch.group(1)!}\\s*>', caseSensitive: false)
+            .firstMatch(s.substring(i));
+        if (close != null) i += close.end;
       }
       out.add(piece);
       continue;

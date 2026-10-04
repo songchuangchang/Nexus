@@ -302,6 +302,7 @@ class _ConnectedConfigsScreenState extends State<ConnectedConfigsScreen> {
             ),
           ).then((_) => _loadData());
         },
+        tooltip: l.tr('addApiConfig'),
         child: const Icon(Icons.add),
       ),
     );

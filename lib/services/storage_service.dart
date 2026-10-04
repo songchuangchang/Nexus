@@ -24,6 +24,7 @@ import '../models/assistant.dart';
 import '../utils/context_compaction_drop.dart';
 import 'live_task_wiring.dart';
 import 'logger_service.dart';
+import 'repo_endpoints.dart';
 import 'secret_store.dart';
 
 /// build173（用户批准的方案 C）：AI 自动写长期记忆的**总闸** —— SharedPreferences 的键，
@@ -1940,11 +1941,32 @@ class StorageService extends ChangeNotifier {
   // build146：六个 provider Key（tavily / serp / brave / googleCse / virusTotal /
   // mobsf）同样只以空串落库，读取时回填。`googleCseId` 是搜索实例 id（cx）不是
   // 凭据，按本仓库既有剥敏白名单（apikey|token|secret 结尾）的口径继续留在列里。
+  /// #129 的一次性留痕开关：迁移不许变成新的静默。
+  ///
+  /// 整进程只喊一次——`getWebSearchConfig` 每次开设置页、每次安全闸都会走，
+  /// 每读一次写一行会把真问题淹掉（build145 那条"过度上报与静默是同一枚硬币的两面"）。
+  static bool _legacyRulesUrlNoted = false;
+
+  /// 测试用：把一次性留痕放开，好让"只喊一次"这条本身可被复验。
+  @visibleForTesting
+  static void resetLegacyRulesUrlNote() => _legacyRulesUrlNoted = false;
+
   Future<WebSearchConfig> getWebSearchConfig() async {
     final database = await db;
     final maps = await database
         .query('web_search_configs', where: 'id = ?', whereArgs: ['singleton']);
     if (maps.isEmpty) return WebSearchConfig();
+    // build176（#129）：`WebSearchConfig.fromMap` 会把指旧私有仓的规则源退回默认，
+    // 但**退回**这件事发生在模型层（模型不 import LoggerService，见 main.dart 里
+    // `ChatMessage.corruptReporter` 那条口径），所以留痕落在这里、读原始列自己判一次。
+    final rawRulesUrl = maps.first['localScanRulesUrl'];
+    if (!_legacyRulesUrlNoted &&
+        rawRulesUrl is String &&
+        isLegacyPrivateRepoSource(rawRulesUrl)) {
+      _legacyRulesUrlNoted = true;
+      _logger.info('[DB] 规则源持久值仍指向已迁走的私有仓，本次读取已退回公开仓默认：'
+          '$rawRulesUrl', tag: 'DB');
+    }
     final cfg = WebSearchConfig.fromMap(maps.first);
     return (await _hydrateSecrets(<WebSearchConfig>[cfg])).first;
   }

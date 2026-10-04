@@ -92,6 +92,16 @@ extension ChatScreenReActExt on _ChatScreenState {
     final effortRounds =
         ApiService.reasoningRoundsForValue(widget.conversation.reasoningEffort);
     if (effortRounds > 0) maxRounds = effortRounds;
+    // build180（刀二）：内置浏览器的熔断上限**由宿主交进来**（研究文档 §4.1 对齐
+    // E5 的思路，刀一文件头那条纪律：会话层不写第三个数）。
+    // 步数用本次运行的真实轮数上限，秒数按「一步一分钟」折算成**数字秒**交给它——
+    // 会话层只比较数字，自己不造 `Duration`（D1 闸）。
+    // 每次进入循环都复位一次控制态：一条用户消息＝一次新的运行，AI 回到
+    // 「控制中但页面状态未知」，动手前必须先 `web_read`（§五.3）。
+    BrowserSession.instance.noteRunLimits(
+      maxSteps: maxRounds,
+      maxElapsedSeconds: maxRounds * BrowserSession.kSecondsPerStep,
+    );
     final effort = ApiService.reasoningEffortForConversation(
         widget.conversation,
         inReAct: true);
@@ -131,7 +141,10 @@ extension ChatScreenReActExt on _ChatScreenState {
     //（按 6000 字符预算拼入）。模型不支持 tools 时由 T7 自动降级回标签协议。
     // N10：MCP 工具名注册表按本循环局部持有，多会话并发互不串名。
     final mcpToolRegistry = <String, (String, String)>{};
-    final agentTools = buildAgentTools(
+    // build180（刀二）：FC 名单先过接线层那一道总闸——默认关 ⇒ 四个浏览器 schema
+    // 不进请求（用户 09-28 口径①「显式开启之后才注册工具」）。判据不住宿主这儿，
+    // 宿主只调那一个函数；标签通道那四个插件照旧在册，由接线层第一跳回绝。
+    final agentTools = await filterAgentToolsByBrowserFlag(buildAgentTools(
       registry: mcpToolRegistry,
       mcpPlugins: enabledPlugins
           .where((p) => p.metadata.kind.isRemote)
@@ -145,7 +158,7 @@ extension ChatScreenReActExt on _ChatScreenState {
                     : <Map<String, dynamic>>[],
               ))
           .toList(),
-    );
+    ));
     final hasDownloadPlugin =
         enabledPlugins.any((p) => p.triggerType == 'download');
 
@@ -213,8 +226,15 @@ extension ChatScreenReActExt on _ChatScreenState {
     // 禁用的插件完全不拼（不启动版）。市场安装的新插件 register 时顺序在 system 之后，自然追加。
     // v1.7.17：传 hint 走目录层+格式层（详情按需加载）。
     final hint = _pluginHintConfig;
-    final reactProtocolPrompt =
-        buildReactSystemPromptFromPlugins(effectivePlugins, hint: hint);
+    // build181 第七轮·扫描·入口面第 6 条：目录也要过总闸。上面那行 FC 名单的过滤
+    // 只保证「tools 数组」里没那四个 schema，而**标签通道**用的这份目录过去无条件
+    // 把四个动作的摘要行＋调用骨架拼进 system（`collectCatalog` 的内置段跑在
+    // `hint.mode==off` 那条早退之前，也不看总闸）⇒ 默认档用户每轮为从没拨开的能力付 token，
+    // 而 `web_browser_plugins.dart` 的文件头写的承诺是"一个字节的 token 都不多付"。
+    final reactProtocolPrompt = buildReactSystemPromptFromPlugins(
+      await filterCatalogPluginsByBrowserFlag(effectivePlugins),
+      hint: hint,
+    );
     // v1.7.17：🔌 用户附加提示由 _pluginHintConfig.extraHints 驱动。
     final pluginHintBlock = hint.extraHints.isNotEmpty
         ? '\n\n=== 用户附加提示 ===\n${hint.extraHints.join('\n')}'
@@ -1651,6 +1671,13 @@ extension ChatScreenReActExt on _ChatScreenState {
             'ip_locate',
             'query_quota',
             'log_query',
+            // build180（刀二）：浏览器四动作同样要进指纹集——模型在坏页面上会
+            // 反复写同一个 <web_read /> 或同一个 idx 的 <web_act />，
+            // 不进这里就只会一路执行到轮数上限（E5 的既有病灶）。
+            'web_navigate',
+            'web_read',
+            'web_act',
+            'web_back',
           };
           if (e5ActionTypes.contains(type)) {
             final fp = buildToolCallFingerprint(p);
@@ -1901,6 +1928,12 @@ extension ChatScreenReActExt on _ChatScreenState {
             'ip_locate',
             'query_quota',
             'log_query',
+            // build180（刀二）：浏览器四动作是**工具轮**的动作，漏进这张表就会
+            // 让「AI 已让浏览器开页」那一轮被裸文本兜底当结论定稿（G32 同型）。
+            'web_navigate',
+            'web_read',
+            'web_act',
+            'web_back',
           };
           // build138（同型第 7 次）：这里的两张名单原本是**手写**的，
           // 新增动作（memory_delete、ws_make_file）就会漏——漏了 hasAnyTag 侧

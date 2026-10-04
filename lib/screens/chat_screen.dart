@@ -25,6 +25,7 @@ import '../plugins/builtin_plugin_i18n.dart';
 import '../plugins/plugin_context.dart';
 import '../plugins/plugin_interface.dart';
 import '../plugins/plugin_registry.dart';
+import '../plugins/web_browser_plugins.dart';
 import '../providers/chat_skin_provider.dart';
 import '../services/live_task_wiring.dart';
 // build162：「回到前台」那一下的通知点（唯一通知方是 main.dart 那个 lifecycle observer）。
@@ -39,6 +40,9 @@ import '../services/app_download_service.dart';
 // （part 文件不许带 import），两个 part 文件 chat_screen_react / chat_screen_orchestrator 共用。
 import '../services/protocol/anthropic_protocol.dart';
 import '../services/attachment_service.dart';
+// build180（刀二）：浏览器会话层的熔断上限在这里交进来（宿主已有 reactMaxRounds，
+// 这一层刻意不写第三个数）。chat_screen_react.dart 是本库的 part，所以 import 归库头。
+import '../services/browser_session.dart';
 import '../services/conversation_summary_service.dart';
 import '../services/context_budget_service.dart';
 import '../services/logger_service.dart';
@@ -111,6 +115,11 @@ import '../ui/app_sheet.dart';
 // build168（宽屏档）：内容列宽度的唯一所有者。断点与列宽都不写在页面上，
 // 本文件只负责把聊天内容那一棵子树交给 AppContentColumn（见 _withBackground）。
 import '../ui/app_content.dart';
+// build182 扫描轮：自动标题那三处 `substring(0,30)` 收成一处，转手给唯一所有者
+// （调用点在 part 文件 `chat_screen_message.dart`，走的是本文件的 import）。
+import '../ui/app_preview.dart';
+import '../ui/app_shell.dart';
+import '../ui/app_when.dart';
 // build138（甲3）：「只看收藏」筛到零条时的空态——复用统一四态外壳与空态组件，
 // 不再手搓一个居中大灰字（那正是本项目空态最常见的失败形态：看不出为什么空、
 // 也看不出怎么出去）。
@@ -637,20 +646,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 日期头文案：今天 / 昨天 / MM月dd日（跨年补年份）。
-  static String _fmtDayLabel(DateTime dt, bool isZh) {
-    final now = DateTime.now();
-    final d0 = DateTime(dt.year, dt.month, dt.day);
-    final n0 = DateTime(now.year, now.month, now.day);
-    final diff = n0.difference(d0).inDays;
-    if (diff == 0) return isZh ? '今天' : 'Today';
-    if (diff == 1) return isZh ? '昨天' : 'Yesterday';
-    final mm = dt.month.toString().padLeft(2, '0');
-    final dd = dt.day.toString().padLeft(2, '0');
-    if (dt.year != now.year) {
-      return isZh ? '${dt.year}年$mm月$dd日' : '${dt.year}-$mm-$dd';
-    }
-    return isZh ? '$mm月$dd日' : '$mm-$dd';
-  }
+  ///
+  /// build182（#159）：**实现搬进 [AppWhen.dayLabel]**，这里只留一个转手。
+  /// 搬的原因不是嫌它长，而是会话列表右侧那一格需要同一套口径（它原来自己拼
+  /// `hour:minute` ⇒ 同一个"什么时候"两种说法）。留这个私有名字是为了不改动
+  /// 本文件里已有的那几个调用点，措辞与补零规则一字未变。
+  static String _fmtDayLabel(DateTime dt, bool isZh) =>
+      AppWhen.dayLabel(dt, isZh);
 
   /// build140（反馈⑥）：输入框上方的待办常驻条。
   ///
@@ -2314,30 +2316,22 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 被夹的只是压在它上面的那条内容列）。全 App 只有这一处把子树交给
   /// [AppContentColumn]：列表、待办条、用量条、输入区共用同一列 ⇒ 天然对齐。
   /// 数值（600/840 断点、640/720 上限）不住在本文件，见 `lib/ui/app_content.dart`。
+  ///
+  /// build182（#160 第二刀）：**画什么**这一半交给 [AppWallpaper]。原来这里是
+  /// `BoxFit.cover` 通栏一张图 + 写死的 `alpha 0.72` 遮罩 —— 手机壁纸倍率≈1 时没问题，
+  /// 同一张图到 914dp 平板上倍率≈3.1，等于把截图里的中文标签放大三倍摆在正文后面，
+  /// 0.72 压不住 ⇒ 用户 10-03 拍的那张"背景残影"。糊多少/多暗现在由**倍率**决定，
+  /// 本文件不再持有那两个常数（判据与出处见 `lib/ui/app_shell.dart`）。
   Widget _withBackground(ChatSkinProvider skin, Widget body) {
     final content = AppContentColumn(child: body);
     final path = skin.backgroundPath;
     if (path.trim().isEmpty) return content;
     final file = File(path);
     if (!file.existsSync()) return content;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Image.file(
-            file,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-          ),
-        ),
-        // 半透明遮罩保证消息可读
-        Positioned.fill(
-          child: ColoredBox(
-            color:
-                Theme.of(context).colorScheme.surface.withValues(alpha: 0.72),
-          ),
-        ),
-        Positioned.fill(child: content),
-      ],
+    return AppWallpaper(
+      image: FileImage(file),
+      maskColor: Theme.of(context).colorScheme.surface,
+      child: content,
     );
   }
 
@@ -2438,8 +2432,11 @@ class _StarredFilterToggle extends StatelessWidget {
       // AppBar actions 自带右侧间距，这里只补它与菜单按钮之间的一点呼吸
       padding: const EdgeInsets.only(right: AppGap.xs),
       child: FilterChip(
-        // 空间紧：标题是 Flexible 会先让位，但开关自己也别占宽
-        visualDensity: VisualDensity.compact,
+        // 空间紧：标题是 Flexible 会先让位，但开关自己也别占宽。
+        // build177：**只收横向、不收纵向**——原来这里是 `VisualDensity.compact`（横竖都 -2），
+        // 平板量到命中区 82.7×**40.0**（登记表 #128 的漏网项之一）。紧凑省的是宽度，
+        // 没理由把可点高度一起削掉 8dp；纵向回到标准档，横向仍 -2 保持原来的省宽意图。
+        visualDensity: const VisualDensity(horizontal: -2, vertical: 0),
         labelPadding: const EdgeInsets.symmetric(horizontal: AppGap.xs),
         showCheckmark: false,
         tooltip: isZh

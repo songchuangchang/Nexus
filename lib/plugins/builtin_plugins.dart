@@ -26,6 +26,8 @@ import 'plugin_registry.dart';
 import 'install_skill_plugin.dart';
 import 'install_mcp_plugin.dart';
 import 'gen_plugins.dart';
+// build180（刀二）：内置浏览器四动作（同样单独成文件，这里只挂四行注册）。
+import 'web_browser_plugins.dart';
 
 final ReActPlugin kFallbackUnknownTagPlugin = FallbackUnknownTagPlugin();
 
@@ -74,6 +76,16 @@ List<ReActPlugin> get builtinReActPlugins => [
       _WsDownloadPlugin(),
       _WsExportPlugin(),
       _WsMakeFilePlugin(),
+      // build180（刀二）：内置浏览器四个动作（实现见 lib/plugins/web_browser_plugins.dart）。
+      // **在册 ≠ 生效**：这四个永远进注册表（①–⑩ 十张表的跨表一致性由
+      // test/build176_browser_wiring_lock_test.dart 的 ⑩ 按**运行期** triggerType 判，
+      // 按总闸摘掉这四个 ⇒ 那一格缺失 ⇒ 锁当场红），
+      // 「这台设备、这个用户开不开」判在插件 handle 的第一跳（总闸只住一处），
+      // 关掉时回灌的是「工具当前未开启」这句**看得见**的失败，不是静默不执行。
+      WebNavigatePlugin(),
+      WebReadPlugin(),
+      WebActPlugin(),
+      WebBackPlugin(),
       // v1.7.37：DeepResearchPlugin 已删除——深度研究并入思考强度 1.0 档
       //（轮数/提示词由 ApiService.isDeepResearchEffort + kDeepResearchProtocol 驱动）
     ];

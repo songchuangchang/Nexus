@@ -136,6 +136,13 @@ const Map<String, String> _kFormatByTrigger = {
   'ws_delete': '<ws_delete path="相对路径" />',
   'ws_export': '<ws_export path="相对路径" mode="share|open" />',
   'ws_download': '<ws_download url="https://…" filename="可选文件名" />',
+  // build180（刀二·内置浏览器四动作）：语法以 react_parser 的 webMatch 分支为准。
+  // 缺这四行的后果与历史同型一致——模型只看得到目录摘要、看不到语法，
+  // 于是「有工具却不会写」（test/build147_resident_format_layer_test.dart 柱子①）。
+  'web_navigate': '<web_navigate url="https://完整地址" />',
+  'web_read': '<web_read />',
+  'web_act': '<web_act idx="7" action="click|input|clear" value="仅 input/clear 要写" />',
+  'web_back': '<web_back />',
 };
 
 /// build147：常驻格式层**唯一取值入口**（口径写在这里，测试 `build147_*` 钉住）。

@@ -12,6 +12,68 @@ import '../utils/app_snackbar.dart';
 import '../utils/launcher_utils.dart';
 import '../utils/office_writer.dart';
 
+/// #25：本 App **唯一**的 markdown 扩展集，所有 `MarkdownBody` 调用点都必须显式传它。
+///
+/// 与上游 `ExtensionSet.gitHubFlavored` 的唯一差别：**摘掉 `FootnoteDefSyntax`**。
+/// 实测（`test/build187_25_footnote_def_visible_test.dart`）：`[^1]: 这是脚注内容` 这样
+/// **没有被引用**的定义行，走上游默认时屏上一个字都不剩——定义被解析成游离的 `li`，
+/// 而 `flutter_markdown-0.7.7+1/lib/` 全库没有脚注渲染区（`footnote` 只命中 `style_sheet.dart:711`
+/// 的一句注释），摘出去的那些字没人画。本仓通则：**显示侧不许偷偷删模型内容**
+/// （`lib/constants.dart` build182 那条已定调：只剥语法标记，不剥内容）。
+///
+/// 摘掉之后 `[^1]: 文字` 退化成普通段落——那对标记会露出来，但内容一定在屏上。
+/// 为什么不用"把脚注区补出来"那条路：那是给渲染层加一个没有所有者的新区域，
+/// 而 #25 要的只是"不许丢字"。
+/// 默认值住在包里（`widget.dart:398` 的 `?? gitHubFlavored`）⇒ 不显式传＝把这件事交给上游升级决定，
+/// 所以调用点是否显式传本集由判据逐处扫 `lib/` 钉住。
+final md.ExtensionSet nexusMarkdownExtensions = md.ExtensionSet(
+  List<md.BlockSyntax>.unmodifiable(<md.BlockSyntax>[
+    for (final s in md.ExtensionSet.gitHubFlavored.blockSyntaxes)
+      if (s is! md.FootnoteDefSyntax) s,
+  ]),
+  List<md.InlineSyntax>.unmodifiable(
+      List<md.InlineSyntax>.from(md.ExtensionSet.gitHubFlavored.inlineSyntaxes)),
+);
+
+/// #25：把 `[^1]: 文字` 这类脚注定义**原样**画成一个段落，一个字都不删。
+///
+/// 只摘掉上游的 `FootnoteDefSyntax`（见 [nexusMarkdownExtensions]）不够——实测：
+/// 那种形状同时长得像**链接引用定义** `[label]: destination`，而 `BlockParser`
+/// （`markdown-7.3.1/lib/src/block_parser.dart:188-195`）对 `LinkReferenceDefinitionSyntax`
+/// 特判成"即使没产出节点也 break 掉这一行"，于是字还是没了。
+/// 自定义语法排在 `document.blockSyntaxes` 前面（`BlockParser` 构造 79-83 行先加 custom
+/// 再加 standard）⇒ 这一条会先命中，链接引用那条拿不到这一行。
+///
+/// 为什么不"把脚注区补出来"：#25 要的只是"不许丢字"，补区域是给渲染层加一个没有所有者的新职责。
+class NexusFootnoteDefSyntax extends md.BlockSyntax {
+  NexusFootnoteDefSyntax();
+
+  @override
+  RegExp get pattern => RegExp(r'^ {0,3}\[\^[^\]\n]{1,60}\]:');
+
+  @override
+  md.Node? parse(md.BlockParser parser) {
+    final lines = <String>[];
+    while (!parser.isDone) {
+      final content = parser.current.content;
+      if (lines.isNotEmpty &&
+          (content.trim().isEmpty ||
+              pattern.hasMatch(content) ||
+              !content.startsWith('    '))) {
+        break; // 只吃这一行，外加缩进续行；空行或下一条定义交还给解析器
+      }
+      // 只有真的缩进满 4 格的续行才剥掉那 4 格；不缩进的行（今天会被上面的 break 挡住）
+      // 一律原样留着——否则一改 break 条件就会像 10-04 那把刀演示的那样，
+      // 把第二条定义的 `[^2]:` 前缀当缩进给削掉（削掉的不是标记，是内容）。
+      lines.add(lines.isEmpty || !content.startsWith('    ')
+          ? content
+          : content.substring(4));
+      parser.advance();
+    }
+    return md.Element('p', [md.Text(lines.join('\n'))]);
+  }
+}
+
 /// v1.7.37：AI 输出多功能化 —— 代码块一键复制 + 表格复制/下载。
 ///
 /// 注意（踩坑）：flutter_markdown 0.7.7+1 的 builder.dart 在 visitElementAfter

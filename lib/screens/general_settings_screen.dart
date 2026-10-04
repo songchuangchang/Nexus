@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
 import '../models/web_search_config.dart';
 import '../services/biometric_service.dart';
+import '../services/browser_feature_flag.dart';
 import '../services/live_task_center.dart';
 import '../services/storage_service.dart';
 import '../ui/tokens.dart';
@@ -50,11 +51,42 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
   /// 免得画出一个"看着能拨、拨了没落盘"的假开关。
   bool? _autoMemoryEnabled;
 
+  /// build176（刀二·片一「总闸上屏」）：AI 自主使用内置浏览器这一格的**全部答案**
+  /// （用户拨的那一位 ＋ 这台设备支不支持 ＋ 由此派生的"该不该注册"）。
+  /// null = 还没读到 ⇒ 这一行显示为关且点不动（与上面两位同一个口径：
+  /// 不许画一个"看着能拨、拨了没落盘"的假开关）。
+  BrowserFeatureState? _browserFeature;
+
   @override
   void initState() {
     super.initState();
     _loadBackgroundRunSwitch();
     _loadAutoMemorySwitch();
+    _loadBrowserToolsSwitch();
+  }
+
+  /// 读「AI 自主使用内置浏览器」这一格。
+  ///
+  /// **判据只住 `browser_feature_flag.dart` 一处**：本页不许自己 `getBool(键)`——
+  /// 两处读早晚漂成"页面显示的是开、注册处判的是关"（教训 #62 同族，
+  /// 与 `StorageService.autoMemoryEnabled()` 那条同一个形状）。
+  Future<void> _loadBrowserToolsSwitch() async {
+    final state = await browserFeatureState();
+    if (!mounted) return;
+    setState(() => _browserFeature = state);
+  }
+
+  /// 拨这一格：只写 prefs，然后**回读**。
+  ///
+  /// 回读不是多余的一步：`browserFeatureState()` 每次都回 prefs（不缓存），
+  /// 所以"关回去立刻生效"这件事在本页是可被看见的——一旦这里改成进程内缓存，
+  /// 用户关掉之后工具仍在注册，那一格就成了假闸。
+  /// 平台不支持时**照落不误**（用户在 Windows 上拨过什么，换到支持的设备就该是什么），
+  /// 但屏上必须同时把"这台设备不支持"说出来，不许把它塌成一句沉默。
+  Future<void> _toggleBrowserTools(bool v) async {
+    await setBrowserToolsEnabled(v);
+    if (!mounted) return;
+    await _loadBrowserToolsSwitch();
   }
 
   Future<void> _loadBackgroundRunSwitch() async {
@@ -116,6 +148,10 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
     // 库里那条闸的默认行为一致（两处都猜 false 的话，页面上会出现一个"看着是关、
     // 实际还在写"的假状态）。
     final autoMemoryEnabled = _autoMemoryEnabled ?? true;
+    // 浏览器总闸：`null`（还没读到）时这一行按"关＋点不动"画，与上面两位同口径。
+    final browserFeature = _browserFeature;
+    // 平台不支持时**必须**把这句话说给用户（它来自判据层那一处，本页不另抄一份文案）。
+    final browserNotice = browserFeature?.unsupportedNotice(zh: zh);
     return Scaffold(
       appBar: AppBar(title: Text(zh ? '通用设置' : 'General')),
       // v1.7.25：设置页固定缩放，避免全局字体缩放挤压布局
@@ -236,6 +272,24 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
                 // build138（甲1）：AI 文件工作区权限档位——消费点在
                 // builtin_plugins._wsConfirm()，档位默认「每次确认」＝现状零变化。
                 _buildWorkspacePermissionTile(context, zh),
+                // build176（刀二·片一「总闸上屏」）：AI 自主使用内置浏览器。
+                // **默认关**——没拨过这一格的用户走今天的行为路径（本包不注册任何网页动作）。
+                // 这里画的是**用户拨的那一位**（`switchOn`），不是"会不会注册"：
+                // 平台不支持时这一位照样能拨（换到支持的设备就该照他说的生效），
+                // 但副标题必须把"这台设备不支持"说出来——把不支持塌成沉默＝白屏事故的前半段。
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  secondary: const Icon(Icons.travel_explore_outlined),
+                  title: Text(zh ? 'AI 自主使用内置浏览器' : 'AI uses the built-in browser'),
+                  subtitle: Text(browserNotice ??
+                      (zh
+                          ? '开启后 AI 可自己打开网页、读页并点击；随时可关'
+                          : 'Lets the assistant open, read and click pages')),
+                  value: browserFeature?.switchOn ?? false,
+                  // 还没读到 ⇒ 点不动（与上面两位同一个口径，别画假开关）。
+                  onChanged: browserFeature == null ? null : _toggleBrowserTools,
+                ),
               ],
             ),
           ],

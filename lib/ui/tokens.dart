@@ -117,6 +117,28 @@ abstract final class AppWait {
   /// 再等下去就是"为一条读数把正事变成新故障"（build165 取证那路的原话）。
   static const Duration heartbeatDiag = Duration(milliseconds: 400);
 
+  /// **读数合并窗**（build182 #160）：`AppWindowChrome` 那行 `tag: Chrome` 读数的 debounce。
+  ///
+  /// 为什么住这里而不是 `app_shell.dart` 里写死：D1 那道闸的口径是"字面时长只许住
+  /// tokens.dart"，这条不能例外（我 10-04 就是先在 app_shell 写了 `Duration(milliseconds: 400)`
+  /// 被 `desktop_motion_guard_test` 判红，红得对）。
+  /// 为什么**不是动画时长**（不归 [AppDur]）：它不驱动任何观感，只决定"多久内的多次
+  /// 读数并成一条"。为什么数值取 400：IME 弹出那十几帧里 `padding.bottom` 是**连续插值**的，
+  /// 每一帧都"真的变了"，逐帧报＝一次开键盘几十条，会把 `logger_service` 的环形缓冲整层换掉
+  /// ⇒ 这一行是装机后判"这台机到底报了什么"的唯一通道，被刷平等于没有。
+  /// ⚠ **不许和 `imeSettleHold`(200ms) 合并**：那条判"键盘这一轮停没停"（要快），
+  /// 这一条只管读数合并（要慢），并成一格会让读数跟着键盘判据一起被改。
+  static const Duration readoutQuiet = Duration(milliseconds: 400);
+
+  /// 读数合并窗的**上限**（build182 第二轮扫描报的：光有 trailing 合并窗会把通道闷死）。
+  ///
+  /// 为什么必须有这一条：合并窗是"每次变化都往后推 400ms"⇒ 只要设备连续变档超过 400ms，
+  /// 这一路**一条都不出**。这不是假想：自由窗口／DeX 拖边界、分屏滑分隔条、
+  /// 某些 OEM 抖动的 IME 流，都是"逐帧在变且中途没有 400ms 安静"的形态，
+  /// 而那几档恰恰是最想读到位子的一屏（带子正在被系统改）。
+  /// 所以规则是：**安静 400ms 出一条；一直不安静则最长 2s 也得出一次**（第 0 帧另算，见下）。
+  static const Duration readoutMaxWait = Duration(seconds: 2);
+
   /// 读上次进程退出原因的超时：那是一次走 system_server 的 IPC，比读静态量慢一个量级。
   static const Duration exitReasonsIpc = Duration(seconds: 3);
 
@@ -127,6 +149,21 @@ abstract final class AppWait {
   /// 约 270ms、逐帧都在变（+28/+36/+32/…），一个 200ms 的字节级平台只可能是"停住了"
   /// 而不是"还在动"。它也不驱动任何观感 —— 只决定"什么时候允许把分母改锚到当前这一档"。
   static const Duration imeSettleHold = Duration(milliseconds: 200);
+
+  /// build181：AI 派发之后，观察"这一跳到底起没起导航"的那一小段窗。
+  /// 不是观感时长——真导航的 `onPageStarted` 几十毫秒就到，700ms 是留给慢机与
+  /// 页面自己那套 JS 拦截器的余量；窗内没事件就立刻返回，别再等满 20 秒。
+  static const Duration navObserveGrace = Duration(milliseconds: 700);
+
+  /// 上面那个观察窗的**采样步长**：多久看一眼"有没有事件落地"，不参与任何观感。
+  static const Duration navObserveStep = Duration(milliseconds: 50);
+
+  /// build181：第一跳完成之后，再攥多久才认定"这一串自跳结束了"。
+  /// 收窗早一步，短链／`<meta refresh>`／onload 里 `location.replace` 的第二跳
+  /// 就会被记成"用户上手"（四闸全拒）。
+  /// **别把它和 `navObserveGrace` 混成一件事**：点了没换页不白等，靠的是那一条
+  /// （观察窗里没看到导航事件就直接返回，压根不进链函数）；这一条只管"确实又在跳"。
+  static const Duration navChainQuiet = Duration(milliseconds: 900);
 }
 
 /// 动效曲线令牌：只有四条，语义绑定用途而非形状。

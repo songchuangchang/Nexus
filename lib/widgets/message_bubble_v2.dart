@@ -6,6 +6,8 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../ui/app_content.dart';
 import '../ui/app_elapsed.dart';
 import '../ui/app_pulse.dart';
+// build182 扫描轮：读屏标签那一段的 markdown 清理转手给它（唯一所有者）。
+import '../ui/app_preview.dart';
 import '../ui/app_skeleton.dart';
 import '../ui/tokens.dart';
 import '../utils/model_name_cleaner.dart';
@@ -14,6 +16,7 @@ import '../l10n/app_localizations.dart';
 import '../models/chat_message.dart';
 import '../services/deep_link_markdown.dart';
 import 'markdown_builders.dart';
+import 'latex_builders.dart';
 import 'message_action_button.dart';
 import 'interact_card.dart';
 import '../utils/launcher_utils.dart';
@@ -288,8 +291,20 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
                         builders: {
                           'pre': CodeBlockBuilder(),
                           'nx_table': TableBuilder(),
+                          // build179（#135）：LaTeX 公式。注册点只有这一处，
+                          // `build179_latex_render_test` 的结构锁逐处扫调用点，
+                          // 新屏开 markdown 却漏上公式＝红，不是等真机发现（教训 #56 同型）。
+                          kLatexElementTag: LatexElementBuilder(),
                         },
-                        blockSyntaxes: [NexusTableSyntax()],
+                        blockSyntaxes: [
+                          NexusTableSyntax(),
+                          NexusFootnoteDefSyntax(),
+                          LatexBlockSyntax(),
+                        ],
+                        inlineSyntaxes: [LatexInlineSyntax()],
+                        // #25：显式传扩展集，不吃包的默认值 `?? gitHubFlavored`
+                        // （那里面的 FootnoteDefSyntax 会把没被引用的定义行整行吞掉）。
+                        extensionSet: nexusMarkdownExtensions,
                         styleSheet: _buildMarkdownStyleSheet(theme, isUser),
                       ),
                     for (final c in cards)
@@ -462,17 +477,20 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
     final roleLabel = isUser
         ? (zh ? '我的消息' : 'My message')
         : (zh ? '助手消息' : 'Assistant message');
-    final plain = widget.message.content
-        .replaceAll(RegExp(r'[#*`>\-\[\]()]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    // 读屏标签的那份文本只有一个所有者：[AppPreview.spoken]。
+    // 这里原来自己写了一套剥 markdown 的字符类 `[#*`>\-\[\]()]`（10-04 第一轮扫描第五条），
+    // 它比 AppPreview 更狠：`-`、`(`、`)` 是**内容字符**，于是 `2026-10-03` 念成"2026 10 03"、
+    // `(见下)` 的括号直接没了。改成走 `of` 之后又露出第二格（第二轮扫描第三条）：
+    // `of` 的设计是"代码块整段让位给正文"，念给用户听时那就是剥夺——
+    // 输入是「解释如下」＋一段围栏代码时，标签只剩「解释如下」，眼睛看得见代码卡、耳朵一个字没有。
+    // `spoken` 是同一个所有者的另一档参数（只删围栏记号、留下代码内容），不是第三套清洗。
+    final plain = AppPreview.spoken(widget.message.content);
     final spoken = plain.isEmpty
         ? widget.message.attachments.map((a) => a.fileName).join('、')
         : plain;
     return Semantics(
       container: true,
-      label:
-          '$roleLabel${spoken.isEmpty ? '' : '：${spoken.length > 200 ? '${spoken.substring(0, 200)}…' : spoken}'}',
+      label: '$roleLabel${spoken.isEmpty ? '' : '：$spoken'}',
       child: out,
     );
   }
@@ -586,6 +604,17 @@ class _MessageBubbleV2State extends State<MessageBubbleV2> {
   void _copyWithFeedback() {
     Clipboard.setData(ClipboardData(text: widget.message.content));
     setState(() => _copied = true);
+    // build178：这一跳必须留下一行带毫秒戳的痕迹。为什么语义树不够用、字段口径是什么，
+    // 写在文件末尾 `formatCopyFeedback` 的注释里（一句话：这台机 dump 一次 2.4s，
+    // 而这一格反馈只持续 900ms，树那把尺根本来不及看）。
+    LoggerService.instance.info(
+      formatCopyFeedback(
+        chars: widget.message.content.length,
+        holdMs: AppDur.toast.inMilliseconds,
+      ),
+      cat: LogCat.ui,
+      tag: 'CopyFeedback',
+    );
     _copiedTimer?.cancel();
     _copiedTimer = Timer(AppDur.toast, () {
       if (!mounted) return;
@@ -2908,3 +2937,30 @@ class _Avatar extends StatelessWidget {
   }
 }
 
+
+// ================= build178：复制回执的日志行（线格式＝契约） =================
+
+/// 复制成功后落的那一行。**字段名与顺序是契约**：平板遍历机械按
+/// `CopyFeedback ... copy chars=<N> hold_ms=<M>` 抓（`tablet_sweep\journeys.json` 里
+/// J27 第 4 步）。改了字段名或换了顺序，机械不会报错，只会读到 0 条 ⇒
+/// 契约两头各有一份判据钉着（`test/build178_copy_feedback_log_test.dart`）。
+///
+/// 为什么要这一行（两次装机复跑＋一把量尺子本身的探针）：用户报的是「点了行内那个复制，
+/// 屏上没有任何可观测反应」。177 那一刀只把 role 从 `View` 钉成 `Button`——**它当时的前提
+/// 「`Tooltip.message` 不进语义树」经实测是错的**：SDK 里 `Tooltip` 经 `semanticsTooltip`
+/// （`material/tooltip.dart:542`）本来就把那句话送进语义，176 的树里 `desc='复制'` 就是证据。
+/// 真正卡住这一格的是时间分辨率：`已复制` 只持续 `AppDur.toast`＝900ms，而这台平板
+/// `uiautomator dump` 一次实测
+/// **2.31–2.41s** ⇒ 树这把尺的时间分辨率看不见它（探针 `probe_j27_flip_window_177.py`：
+/// 连抓 12 次，最早一次落在 tap 之后 +3046ms，12 次全是「复制」）。
+/// 于是"点没点到"在旧通道上无法判：死点判据说"树没变"，可树真变了也来不及被抓到。
+///
+/// 日志通道带毫秒戳、不受那次 2.4s 往返限制 ⇒ 这一行就是"这一跳真发生过"的独立证据。
+/// **只报字数，正文一个字都不进日志**。剪贴板**内容**这台机仍然没有尺子可读，
+/// 那格欠账照旧记着，这一行不冒充它。
+@visibleForTesting
+String formatCopyFeedback({
+  required int chars,
+  required int holdMs,
+}) =>
+    'copy chars=$chars hold_ms=$holdMs';

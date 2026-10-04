@@ -197,6 +197,32 @@ const Map<String, PluginI18nEntry> kBuiltinPluginI18n = {
         'Renders text data into a real Excel (.xlsx), Word (.docx) or PDF file inside the workspace; .csv is the plain-data fallback. Binary payloads such as base64 are rejected.',
     tags: ['Built-in', 'Workspace'],
   ),
+  // build180（刀二）：内置浏览器四个动作。漏一条不是「英文界面显示中文」这么轻——
+  // test/build133_plugin_i18n_test.dart 遍历运行期 builtinReActPlugins，缺 en 条目直接红。
+  'nexus.builtin.web_navigate': PluginI18nEntry(
+    name: 'Browser: Open Page',
+    description:
+        'Opens an HTTPS page inside the app\'s built-in browser (off by default, turned on in General settings). The first visit to a domain asks the user to confirm.',
+    tags: ['Built-in', 'Browser'],
+  ),
+  'nexus.builtin.web_read': PluginI18nEntry(
+    name: 'Browser: Read Page',
+    description:
+        'Serializes the current page into visible text plus a list of interactive elements, each with an idx for web_act. Long pages keep only what is near the viewport and say how much was left out.',
+    tags: ['Built-in', 'Browser'],
+  ),
+  'nexus.builtin.web_act': PluginI18nEntry(
+    name: 'Browser: Act On Element',
+    description:
+        'Clicks, fills or clears an element of the built-in browser page by its idx. Password fields are never filled for the user, and a form containing one must be submitted by hand.',
+    tags: ['Built-in', 'Browser'],
+  ),
+  'nexus.builtin.web_back': PluginI18nEntry(
+    name: 'Browser: Go Back',
+    description:
+        'Goes one page back in the built-in browser history; the element list is stale afterwards, so the page has to be read again.',
+    tags: ['Built-in', 'Browser'],
+  ),
 };
 
 /// 取插件展示名：中文用元数据原名；英文优先字典，缺失则回退原名（绝不返回空白）。

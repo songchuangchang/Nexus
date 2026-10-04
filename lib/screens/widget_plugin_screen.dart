@@ -124,6 +124,7 @@ class _WidgetPluginScreenState extends State<WidgetPluginScreen> {
                 ),
       floatingActionButton: FloatingActionButton(
         onPressed: _busy ? null : () => _showAddSheet(isZh),
+        tooltip: isZh ? '添加小部件' : 'Add widget',
         child: const Icon(Icons.add),
       ),
     );
